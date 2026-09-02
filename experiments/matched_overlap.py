@@ -188,6 +188,57 @@ def run_sweep_point(
     }
 
 
+def lambda_controls_overlap(rows: Sequence[Dict[str, object]]) -> Dict[str, object]:
+    """Does the regularization strength actually steer realized overlap?
+
+    The matched-overlap experiment rests on being able to dial overlap and
+    compare two selection criteria at an equal structural budget. That premise
+    is testable, and if it fails the "matched" pairs are matching on run-to-run
+    noise rather than on a controlled budget - which is a very different claim
+    and must not be reported as the same one.
+
+    Compares the spread of overlap attributable to lambda, within a seed,
+    against the spread attributable to the seed at fixed lambda.
+    """
+    from collections import defaultdict
+
+    from crpa.metrics import spearman
+
+    usable = [
+        r for r in rows
+        if isinstance(r.get("realized_overlap"), (int, float))
+        and math.isfinite(float(r["realized_overlap"]))
+    ]
+    if len(usable) < 4:
+        return {"n": len(usable), "conclusive": False}
+
+    out: Dict[str, object] = {"n": len(usable)}
+    for variant in sorted({r["variant"] for r in usable}):
+        sel = [r for r in usable if r["variant"] == variant]
+        lam = [float(r["lambda_red"]) for r in sel]
+        ov = [float(r["realized_overlap"]) for r in sel]
+
+        within_seed, across_seed = defaultdict(list), defaultdict(list)
+        for r in sel:
+            within_seed[r["seed"]].append(float(r["realized_overlap"]))
+            across_seed[float(r["lambda_red"])].append(float(r["realized_overlap"]))
+        lam_span = max(
+            (max(v) - min(v) for v in within_seed.values() if len(v) > 1), default=0.0
+        )
+        seed_span = max(
+            (max(v) - min(v) for v in across_seed.values() if len(v) > 1), default=0.0
+        )
+        out[variant] = {
+            "spearman_lambda_vs_overlap": spearman(lam, ov),
+            "max_overlap_span_across_lambda_within_a_seed": lam_span,
+            "max_overlap_span_across_seeds_at_fixed_lambda": seed_span,
+            # If changing lambda moves overlap no more than changing the seed
+            # does, lambda is not the thing setting the budget.
+            "lambda_dominates_seed": bool(lam_span > 2 * seed_span),
+        }
+    return out
+
+
 def collect_runs(results_dir: Path) -> List[Dict[str, object]]:
     """Flatten completed sweep records into rows the matcher understands."""
     rows: List[Dict[str, object]] = []
@@ -208,8 +259,10 @@ def write_outputs(results_dir: Path, tolerance: float) -> Dict[str, object]:
     pairs = find_matched_overlap_pairs(rows, tolerance=tolerance)
     if pairs:
         write_csv(results_dir / "matched_pairs.csv", pairs)
+    control = lambda_controls_overlap(rows)
     payload = {
         "experiment": EXPERIMENT,
+        "lambda_control": control,
         "tolerance": tolerance,
         "n_runs": len(rows),
         "n_matched_pairs": len(pairs),
@@ -302,6 +355,24 @@ def main(argv: List[str] | None = None) -> int:
                               m["realized_overlap"], m["retrieval_accuracy"]))
 
     payload = write_outputs(results_dir, args.tolerance)
+
+    control = payload.get("lambda_control", {})
+    weak = [v for k, v in control.items()
+            if isinstance(v, dict) and v.get("lambda_dominates_seed") is False]
+    if weak:
+        print_header("Warning: lambda_red does not steer realized overlap")
+        for variant, stats in control.items():
+            if not isinstance(stats, dict):
+                continue
+            print("  {:<20} spearman(lambda, overlap) = {:+.3f}".format(
+                variant, stats["spearman_lambda_vs_overlap"]))
+            print("  {:<20} overlap span from lambda  = {:.4f}".format(
+                "", stats["max_overlap_span_across_lambda_within_a_seed"]))
+            print("  {:<20} overlap span from seed    = {:.4f}".format(
+                "", stats["max_overlap_span_across_seeds_at_fixed_lambda"]))
+        print("\nMatched pairs below are therefore matched on run-to-run "
+              "variation, not on a\ncontrolled structural budget. Read them "
+              "as such.")
 
     print_header("Matched pairs (realized overlap within {})".format(args.tolerance))
     if not payload["matched_pairs"]:

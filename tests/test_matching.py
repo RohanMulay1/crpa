@@ -102,3 +102,47 @@ class TestMatching:
         # experiment exists to surface.
         assert pair["crpa_naive_lambda_red"] == 0.20
         assert pair["crpa_contribution_lambda_red"] == 0.01
+
+
+class TestLambdaControl:
+    """The matched-overlap experiment rests on lambda actually steering overlap.
+
+    If it does not, the "matched" pairs are matched on run-to-run variation
+    rather than on a controlled structural budget. That is a different and much
+    weaker claim, so the experiment has to detect and say it.
+    """
+
+    def _rows(self, overlap_fn):
+        return [
+            {"variant": "crpa_naive", "seed": seed, "lambda_red": lam,
+             "realized_overlap": overlap_fn(seed, lam)}
+            for seed in (42, 1337, 2024)
+            for lam in (0.0, 0.01, 0.05, 0.10, 0.20)
+        ]
+
+    def test_detects_that_lambda_steers_overlap(self):
+        from experiments.matched_overlap import lambda_controls_overlap
+
+        rows = self._rows(lambda seed, lam: 0.30 - 0.5 * lam)
+        out = lambda_controls_overlap(rows)["crpa_naive"]
+        assert out["lambda_dominates_seed"] is True
+        assert out["spearman_lambda_vs_overlap"] == pytest.approx(-1.0)
+
+    def test_detects_that_lambda_does_nothing(self):
+        from experiments.matched_overlap import lambda_controls_overlap
+
+        # Overlap depends only on the seed, not at all on lambda.
+        rows = self._rows(lambda seed, lam: 0.24 + (seed % 7) * 0.005)
+        out = lambda_controls_overlap(rows)["crpa_naive"]
+        assert out["lambda_dominates_seed"] is False
+        assert out["max_overlap_span_across_lambda_within_a_seed"] == pytest.approx(0.0)
+        assert out["max_overlap_span_across_seeds_at_fixed_lambda"] > 0
+
+    def test_too_few_runs_is_inconclusive(self):
+        from experiments.matched_overlap import lambda_controls_overlap
+
+        out = lambda_controls_overlap([
+            {"variant": "crpa_naive", "seed": 42, "lambda_red": 0.0,
+             "realized_overlap": 0.24}
+        ])
+        assert out["conclusive"] is False
