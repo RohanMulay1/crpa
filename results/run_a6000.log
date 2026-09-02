@@ -1,0 +1,176 @@
+Device: cuda
+GPU: NVIDIA RTX A6000 | 50.9 GB
+/mnt/disk/ishank2/.crpa/lib/python3.10/site-packages/transformers/utils/hub.py:124: FutureWarning: Using `TRANSFORMERS_CACHE` is deprecated and will be removed in v5 of Transformers. Use `HF_HOME` instead.
+  warnings.warn(
+Loading GPT2 tokenizer...
+/mnt/disk/ishank2/.crpa/lib/python3.10/site-packages/huggingface_hub/file_download.py:945: FutureWarning: `resume_download` is deprecated and will be removed in version 1.0.0. Downloads always resume when possible. If you want to force a new download, use `force_download=True`.
+  warnings.warn(
+Loading WikiText-2...
+Token indices sequence length is longer than the specified maximum sequence length for this model (2403644 > 1024). Running this sequence through the model will result in indexing errors
+Vocab: 50257 | Train: 2,403,644 | Val: 248,461
+
+=================================================================
+ Experiment A — Ablation  (block_size=512)
+=================================================================
+
+────────────────────────────────────────────────────────────
+  variant=dense | 12.4M params | block=512
+    step     0  train=10.8760  val=10.8781
+    step   400  train=7.5712  val=7.5743
+    step   800  train=7.3920  val=7.4372
+    step  1200  train=7.0815  val=7.1644
+    step  1600  train=6.9012  val=6.9489
+    step  2000  train=6.6717  val=6.7585
+    step  2400  train=6.5547  val=6.6758
+    step  2800  train=6.4735  val=6.5364
+    step  3200  train=6.4259  val=6.5837
+    step  3600  train=6.4525  val=6.5389
+    step  3999  train=6.4383  val=6.5586
+
+────────────────────────────────────────────────────────────
+  variant=sliding | 12.4M params | block=512
+    step     0  train=10.8722  val=10.8727
+    step   400  train=7.5671  val=7.5733
+    step   800  train=7.4034  val=7.4508
+    step  1200  train=7.1383  val=7.2199
+    step  1600  train=7.0973  val=7.1423
+    step  2000  train=6.8875  val=6.9661
+    step  2400  train=6.7812  val=6.8846
+    step  2800  train=6.7432  val=6.7881
+    step  3200  train=6.7122  val=6.8382
+    step  3600  train=6.7354  val=6.7898
+    step  3999  train=6.7251  val=6.8086
+
+────────────────────────────────────────────────────────────
+  variant=crpa_noreg | 12.4M params | block=512
+    step     0  train=11.2250  val=11.2270
+    step   400  train=7.9033  val=7.9510
+    step   800  train=7.8129  val=7.8828
+    step  1200  train=7.3970  val=7.4350
+    step  1600  train=7.2594  val=7.3043
+    step  2000  train=7.0781  val=7.1776
+    step  2400  train=7.0054  val=7.0660
+    step  2800  train=6.9105  val=7.0485
+    step  3200  train=6.8598  val=6.9734
+    step  3600  train=6.8965  val=6.9501
+    step  3999  train=6.9095  val=6.9859
+
+────────────────────────────────────────────────────────────
+  variant=crpa_naive | 12.4M params | block=512
+    step     0  train=11.2296  val=11.2317
+    step   400  train=7.9472  val=7.9873
+    step   800  train=7.8228  val=7.8916
+    step  1200  train=7.5826  val=7.6194
+    step  1600  train=7.5133  val=7.5607
+    step  2000  train=7.2687  val=7.3353
+    step  2400  train=7.1862  val=7.2197
+    step  2800  train=7.0693  val=7.1145
+    step  3200  train=6.9967  val=7.0414
+    step  3600  train=6.9805  val=7.0551
+    step  3999  train=6.9720  val=7.0566
+
+────────────────────────────────────────────────────────────
+  variant=crpa_causal | 12.4M params | block=512
+    step     0  train=11.2250  val=11.2270
+    step   400  train=7.9033  val=7.9510
+    step   800  train=7.5620  val=7.6147
+    step  1200  train=7.3614  val=7.4018
+    step  1600  train=7.2157  val=7.2496
+    step  2000  train=7.0910  val=7.1992
+    step  2400  train=7.0673  val=7.1247
+    step  2800  train=6.9543  val=7.0355
+    step  3200  train=6.9178  val=7.0682
+    step  3600  train=6.9323  val=6.9790
+    step  3999  train=6.9245  val=7.0103
+
+Evaluating all variants...
+  Dense Transformer              PPL=705.32  Ret=50.9%  Ov=0.348
+  Sliding Window                 PPL=905.56  Ret=51.9%  Ov=0.298
+  CRPA no reg.                   PPL=1081.31  Ret=8.4%  Ov=0.219
+  CRPA naive reg.                PPL=1160.46  Ret=5.3%  Ov=0.251
+  CRPA causal reg.               PPL=1108.03  Ret=32.8%  Ov=0.243
+  Saved: results/table2_main.txt
+TABLE 2 — Main Results
+=================================================================
+  Model                              PPL    Ret.Acc    Overlap
+  -------------------------------------------------------
+  Dense Transformer               705.32      50.9%     0.348
+  Sliding Window                  905.56      51.9%     0.298
+  CRPA no reg.                   1081.31       8.4%     0.219
+  CRPA naive reg.                1160.46       5.3%     0.251
+  CRPA causal reg.               1108.03      32.8%     0.243 <-- best
+  Saved: results/table4_ablation.txt
+
+TABLE 4 — Causal Overlap Ablation
+============================================================
+  Variant                     Overlap    Ret.Acc     PPL
+  ------------------------------------------------
+  No overlap reg.               0.219       8.4% 1081.31
+  Naive overlap reg.            0.251       5.3% 1160.46
+  Causal overlap reg.           0.243      32.8% 1108.03 <-- paper claim
+
+PAPER CLAIMS:
+  S3 Naive reduces overlap most: 0.251 < 0.243  -> FAILED
+  S3 But naive hurts retrieval:  5.3% < 32.8%  -> VERIFIED
+  S5 Causal beats no-reg:        32.8% > 8.4%  -> VERIFIED
+
+=================================================================
+ Experiment B — Runtime Scaling  (Table 3)
+=================================================================
+  dense          ctx=  64      3.4ms
+  sliding        ctx=  64      6.1ms
+  crpa_causal    ctx=  64      4.9ms
+  dense          ctx= 128      3.9ms
+  sliding        ctx= 128      9.3ms
+  crpa_causal    ctx= 128      5.3ms
+  dense          ctx= 256      6.4ms
+  sliding        ctx= 256     16.5ms
+  crpa_causal    ctx= 256      7.5ms
+  dense          ctx= 512     15.5ms
+  sliding        ctx= 512     33.6ms
+  crpa_causal    ctx= 512     16.9ms
+  Saved: results/table3_scaling.txt
+TABLE 3 — Normalised Runtime Scaling
+============================================================
+  Model                      64    128    256    512
+  -------------------------------------------------------
+  Dense (GPT)              1.0x   1.1x   1.9x   4.6x
+  Sliding Window           1.0x   1.5x   2.7x   5.5x
+  CRPA (ours)              1.0x   1.1x   1.6x   3.5x
+
+S4 CRPA sub-quadratic: 3.5x vs dense 4.6x -> VERIFIED
+
+=================================================================
+ Experiment C — Routing Diagnostics  (Table 5)
+=================================================================
+
+[1/3] No load balancing (lambda_bal=0)
+  variant=crpa_noreg | 12.4M params | block=512
+    step     0  train=11.1650  val=11.1670
+    step   400  train=7.8434  val=7.8918
+    step   800  train=7.7934  val=7.8615
+    step  1200  train=7.5271  val=7.5531
+    step  1499  train=7.4759  val=7.5040
+
+[2/3] Balance only (lambda_bal>0, lambda_red=0)
+  variant=crpa_noreg | 12.4M params | block=512
+    step     0  train=10.9250  val=10.9269
+    step   400  train=7.6085  val=7.6565
+    step   800  train=7.4870  val=7.5509
+    step  1200  train=7.2506  val=7.2767
+    step  1499  train=7.1949  val=7.2228
+
+[3/3] CRPA full — using already-trained model
+  Saved: results/table5_routing.txt
+TABLE 5 — Routing Diagnostics
+=================================================================
+  Variant              Empty Parts%   Route Ent   Load Err
+  -------------------------------------------------------
+  No balancing                 0.0%       1.386    0.0000
+  Balance only                 0.0%       1.386    0.0000
+  CRPA full                    0.0%       1.386    0.0000 <-- best
+
+Generating figures...
+  Saved: results/fig_all.png
+
+All experiments complete. Results in results/

@@ -1,0 +1,4 @@
+seed,status,context_length,n_candidates_scored,probs_window,retrieval_accuracy,realized_overlap,delta_mean,delta_std,delta_p50,delta_p90,delta_max,ranking_stability_spearman,frac_high_overlap_low_contribution,frac_high_overlap_high_contribution,theoretical_causal_edges,actual_edges,sparsity_ratio,edge_count_is_upper_bound,dense_causal_edges,crpa_edges_upper_bound,sparsity_ratio_upper_bound,edges_per_query
+42,completed,4096,24,1024,0.0,0.23232803898175394,0.0,5.506041232963807e-07,0.0,6.675720214843743e-07,9.5367431640625e-07,1.0,0.16666666666666666,0.08333333333333333,8390656,1189699.857142857,0.14178865837699187,False,8390656.0,2392064,0.28508664876739076,552
+42,oom,8192,,,,,,,,,,,,,,,,,,,,
+42,oom,16384,,,,,,,,,,,,,,,,,,,,

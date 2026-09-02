@@ -89,7 +89,7 @@ def estimate_loss(
             losses = torch.zeros(eval_iters)
             for k in range(eval_iters):
                 x, y = corpus.lm_batch(role, block_size, bs, device)
-                _, loss = model(x, y)
+                _, loss = model(x, y, loss_chunk=2048)
                 losses[k] = loss.item()
             out[role] = float(losses.mean().item())
     finally:

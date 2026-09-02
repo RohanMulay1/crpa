@@ -461,12 +461,21 @@ class GPT(nn.Module):
         plan: Optional["object"] = None,
         lambda_bal: float = 0.0,
         lambda_red: float = 0.0,
+        last_only: bool = False,
+        loss_chunk: int = 0,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         """Args:
             idx: ``(B, T)`` token ids.
             targets: ``(B, T)`` next-token targets; when given, a loss is returned.
             plan: an :class:`crpa.intervention.InterventionPlan`, or ``None``.
             lambda_bal / lambda_red: auxiliary loss weights.
+            last_only: project only the final position through the output head.
+                The retrieval task is scored there and nowhere else, and the
+                full projection is ``(B, T, vocab)`` - 6.6 GB at T=16384 with a
+                50k vocabulary, which is what exhausts memory at long context.
+            loss_chunk: compute the language-model loss in chunks of this many
+                positions, so the logits for a long sequence never exist all at
+                once. 0 disables chunking.
         """
         B, T = idx.shape
         if T > self.block_size:
@@ -496,12 +505,34 @@ class GPT(nn.Module):
             Lb = Lb + lb
             Lr = Lr + lr
 
-        logits = self.head(self.ln_f(x))
+        h = self.ln_f(x)
 
         # Retained with their graph so a caller computing its own task loss
         # (the retrieval branch does) can still add the auxiliary terms.
         self._last_aux = (Lb, Lr)
 
+        if last_only and targets is None:
+            # (B, 1, vocab). Callers that only read logits[:, -1, :] get the
+            # same answer for a fraction of the memory.
+            return self.head(h[:, -1:, :]), None
+
+        if targets is not None and loss_chunk > 0 and T > loss_chunk:
+            # Accumulate the mean cross-entropy without materialising logits
+            # for the whole sequence at once.
+            total = torch.zeros((), device=idx.device, dtype=torch.float32)
+            for start in range(0, T, loss_chunk):
+                stop = min(start + loss_chunk, T)
+                part = self.head(h[:, start:stop, :])
+                total = total + F.cross_entropy(
+                    part.reshape(-1, part.shape[-1]).float(),
+                    targets[:, start:stop].reshape(-1),
+                    reduction="sum",
+                )
+                del part
+            token_loss = total / float(B * T)
+            return None, token_loss + lambda_bal * Lb + lambda_red * Lr
+
+        logits = self.head(h)
         loss = None
         if targets is not None:
             token_loss = F.cross_entropy(

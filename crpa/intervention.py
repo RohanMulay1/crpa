@@ -508,7 +508,9 @@ def make_needle_loss_fn(
     """
 
     def loss_fn(model: torch.nn.Module, plan: Optional[InterventionPlan]) -> float:
-        logits, _ = model(x, plan=plan)
+        # Only the last position is scored; projecting the whole sequence
+        # through the vocabulary is what exhausts memory at long context.
+        logits, _ = model(x, plan=plan, last_only=True)
         return float(F.cross_entropy(logits[:, -1, :], y).item())
 
     return loss_fn
@@ -520,12 +522,8 @@ def make_lm_loss_fn(
     """Mean next-token cross-entropy on a fixed language-modelling batch."""
 
     def loss_fn(model: torch.nn.Module, plan: Optional[InterventionPlan]) -> float:
-        logits, _ = model(x, plan=plan)
-        return float(
-            F.cross_entropy(
-                logits.reshape(-1, logits.shape[-1]), y.reshape(-1)
-            ).item()
-        )
+        _, loss = model(x, y, plan=plan, loss_chunk=2048)
+        return float(loss.item())
 
     return loss_fn
 

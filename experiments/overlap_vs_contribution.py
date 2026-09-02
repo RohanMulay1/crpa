@@ -184,7 +184,7 @@ def measure_group_effect(
         with torch.no_grad():
             for _ in range(n_batches):
                 x, y = corpus.needle_batch(EVAL, block, 8, device=device)
-                logits, _ = model(x, plan=plan)
+                logits, _ = model(x, plan=plan, last_only=True)
                 correct += int((logits[:, -1, :].argmax(dim=-1) == y).sum().item())
                 total += int(y.shape[0])
         removed = model.intervened_count()
@@ -194,8 +194,9 @@ def measure_group_effect(
         with torch.no_grad():
             for _ in range(n_batches):
                 xb, yb = corpus.lm_batch(EVAL, block, 4, device)
-                base_losses.append(float(model(xb, yb)[1].item()))
-                cut_losses.append(float(model(xb, yb, plan=plan)[1].item()))
+                base_losses.append(float(model(xb, yb, loss_chunk=2048)[1].item()))
+                cut_losses.append(
+                    float(model(xb, yb, plan=plan, loss_chunk=2048)[1].item()))
 
     after = 100.0 * correct / max(total, 1)
     lm_base = float(np.mean(base_losses)) if base_losses else float("nan")

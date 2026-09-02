@@ -45,7 +45,9 @@ def retrieval_accuracy(
             x, y = corpus.needle_batch(
                 role, block_size, bs, needle_depth=needle_depth, device=device
             )
-            logits, _ = model(x)
+            # Only the final position is scored, so project only that one.
+            # The full (B, T, vocab) projection is 6.6 GB at T=16384.
+            logits, _ = model(x, last_only=True)
             correct += int((logits[:, -1, :].argmax(dim=-1) == y).sum().item())
             total += int(y.shape[0])
     finally:
@@ -142,15 +144,20 @@ def language_model_loss(
     role: str = EVAL,
     n_batches: int = 20,
     bs: int = 8,
+    loss_chunk: int = 2048,
 ) -> float:
-    """Mean next-token cross-entropy on one split."""
+    """Mean next-token cross-entropy on one split.
+
+    ``loss_chunk`` bounds the logits materialised at once, so this is usable at
+    long context where the full projection would not fit.
+    """
     was_training = model.training
     model.eval()
     losses = []
     try:
         for _ in range(n_batches):
             x, y = corpus.lm_batch(role, block_size, bs, device)
-            _, loss = model(x, y)
+            _, loss = model(x, y, loss_chunk=loss_chunk)
             losses.append(float(loss.item()))
     finally:
         if was_training:
