@@ -291,3 +291,48 @@ class TestStatistics:
         assert top_k_agreement([1, 2, 3, 4], [1, 2, 9, 8], 2) == pytest.approx(1.0)
         assert top_k_agreement([1, 2, 3, 4], [5, 6, 7, 8], 2) == pytest.approx(0.0)
         assert top_k_agreement([1, 2, 3, 4], [2, 5, 6, 7], 2) == pytest.approx(0.5)
+
+
+class TestEpsCalibration:
+    """The suppressibility threshold must be checked against the delta scale.
+
+    Perfect classification agreement is not evidence of a stable classifier if
+    the threshold admits every edge. On the small profile the observed deltas
+    are around 1e-6 while the default eps is 0.03, so every edge classifies as
+    suppressible and the split carries no information.
+    """
+
+    def _cands(self, deltas):
+        from crpa.intervention import Candidate
+
+        return [Candidate(layer=0, head=0, query=10 + i, key=i, overlap=0.5,
+                          delta_loss=d) for i, d in enumerate(deltas)]
+
+    def test_threshold_far_above_the_delta_scale_is_flagged(self):
+        from crpa.intervention import eps_calibration
+
+        out = eps_calibration(self._cands([1e-6, 2e-6, -1e-6, 5e-7]), eps=0.03)
+        assert out["vacuous"] is True
+        assert out["frac_classified_suppressible"] == pytest.approx(1.0)
+        assert out["eps_over_delta_scale"] > 1000
+        assert "vacuous" in out["note"]
+
+    def test_threshold_that_admits_nothing_is_also_flagged(self):
+        from crpa.intervention import eps_calibration
+
+        out = eps_calibration(self._cands([1.0, 2.0, 3.0, 4.0]), eps=1e-9)
+        assert out["vacuous"] is True
+        assert out["frac_classified_suppressible"] == pytest.approx(0.0)
+
+    def test_a_well_scaled_threshold_is_not_flagged(self):
+        from crpa.intervention import eps_calibration
+
+        out = eps_calibration(self._cands([-2.0, -1.0, 0.5, 1.0, 3.0]), eps=0.5)
+        assert out["vacuous"] is False
+        assert 0.0 < out["frac_classified_suppressible"] < 1.0
+
+    def test_empty_input_is_handled(self):
+        from crpa.intervention import eps_calibration
+
+        out = eps_calibration([], eps=0.03)
+        assert out["n"] == 0 and out["vacuous"] is None

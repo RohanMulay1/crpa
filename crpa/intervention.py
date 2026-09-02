@@ -561,6 +561,45 @@ def select_contribution_gated(
     return sorted(scored, key=lambda c: c.delta_loss)[:budget]
 
 
+def eps_calibration(candidates: Sequence[Candidate], eps: float) -> Dict[str, object]:
+    """Check the suppressibility threshold against the observed delta scale.
+
+    ``delta <= eps`` is only a meaningful classifier if ``eps`` is comparable
+    to the spread of measured deltas. If it sits orders of magnitude above
+    them, every edge classifies as suppressible and the threshold carries no
+    information - the classification looks perfectly stable precisely because
+    it is vacuous.
+
+    This is not hypothetical. At the small profile the observed deltas are
+    around 1e-6 while the default eps is 0.03, roughly four orders of magnitude
+    larger, so the classification is uninformative and must be reported as
+    such rather than as agreement.
+    """
+    deltas = [c.delta_loss for c in candidates if math.isfinite(c.delta_loss)]
+    if not deltas:
+        return {"n": 0, "vacuous": None}
+    arr = np.abs(np.asarray(deltas, dtype=float))
+    scale = float(np.percentile(arr, 95)) if arr.size else float("nan")
+    frac_below = float(np.mean([d <= eps for d in deltas]))
+    ratio = eps / scale if scale > 0 else float("inf")
+    return {
+        "n": len(deltas),
+        "eps": eps,
+        "delta_abs_p95": scale,
+        "delta_abs_max": float(arr.max()),
+        "eps_over_delta_scale": ratio,
+        "frac_classified_suppressible": frac_below,
+        # A threshold that admits everything, or nothing, separates nothing.
+        "vacuous": bool(frac_below > 0.99 or frac_below < 0.01),
+        "note": (
+            "eps is {:.3g}x the 95th percentile of |delta|; the "
+            "suppressible/not-suppressible split is vacuous".format(ratio)
+            if (frac_below > 0.99 or frac_below < 0.01) else
+            "eps is comparable to the observed delta scale"
+        ),
+    }
+
+
 def split_high_overlap_groups(
     candidates: Sequence[Candidate],
     high_overlap_q: float = 0.75,

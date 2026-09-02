@@ -48,6 +48,7 @@ from crpa.intervention import (
     sample_legacy_row_pairs,
     score_candidates,
     select_contribution_gated,
+    eps_calibration,
     select_naive,
     split_high_overlap_groups,
 )
@@ -228,6 +229,7 @@ def analyse(candidates: List[Candidate], cfg: ExperimentConfig) -> Dict[str, obj
         "n_candidates": len(candidates),
         "n_scored": len(usable),
         "correlation": correlations(overlaps, deltas),
+        "eps_calibration": eps_calibration(usable, cfg.contribution.eps),
         "overlap_summary": {
             "min": float(np.min(overlaps)) if overlaps else float("nan"),
             "max": float(np.max(overlaps)) if overlaps else float("nan"),

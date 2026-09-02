@@ -36,6 +36,7 @@ from crpa.config import ExperimentConfig
 from crpa.data import CALIBRATION
 from crpa.intervention import (
     Candidate,
+    eps_calibration,
     InterventionPlan,
     reachable_queries,
     sample_candidate_edges,
@@ -213,7 +214,18 @@ def main(argv: List[str] | None = None) -> int:
                           budget, stats["mean_spearman"], args.top_k,
                           stats["mean_top_k_agreement"],
                           stats["mean_classification_agreement"]))
-            rec.metrics = {"stability": seed_rows, "n_candidates": len(candidates)}
+            # Report whether the suppressibility threshold means anything at
+            # this delta scale. Perfect classification agreement is not
+            # stability if the threshold admits every edge.
+            probe = estimate_deltas(model, candidates, corpus, run_cfg, device,
+                                    max(args.budgets))
+            for cand, d in zip(candidates, probe):
+                cand.delta_loss = d
+            calib = eps_calibration(candidates, run_cfg.contribution.eps)
+            if calib.get("vacuous"):
+                print("    warning: {}".format(calib["note"]))
+            rec.metrics = {"stability": seed_rows, "n_candidates": len(candidates),
+                           "eps_calibration": calib}
 
     if rows:
         write_csv(results_dir / "stability.csv", rows)
