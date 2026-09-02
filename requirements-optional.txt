@@ -1,0 +1,11 @@
+# Optional extras. Tier 1 does not need any of these, which is why they are
+# kept out of requirements.txt.
+
+# Sharded / offloaded loading for the Tier 3 7B-8B diagnostic (--device_map)
+accelerate>=0.26.0
+
+# 8-bit and 4-bit loading (--load_in_8bit / --load_in_4bit)
+bitsandbytes>=0.42.0
+
+# Convenience for reading result CSVs
+pandas>=2.0.0

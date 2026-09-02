@@ -1,234 +1,541 @@
-# CRPA: Causally-Regularized Partitioned Attention
+# CRPA: structural overlap versus behavioral contribution
 
-Small-scale reproduction of **"Measuring and Reducing Redundant Attention in Long-Context Transformers"** (NeurIPS 2026).
+Attention overlap is a **structural** statistic. It says how similar two queries'
+attention supports look. Redundancy is a **behavioral** property. It says whether
+removing an interaction actually changes what the model does.
 
-Paper scale: 138M params, A100 80GB, 64k context.
-This repo: 12.4M params, RTX A6000 48GB, 512 context. Full run under 60 minutes.
+This repository exists to test whether the first predicts the second.
+
+> **Core claim.** High structural overlap does not imply dispensability.
+> Behavioral contribution, estimated by intervention, is a better criterion for
+> deciding which overlapping interactions may be suppressed.
+
+We are **not** claiming CRPA is a fast long-context transformer. The evidence
+here does not support that, and the KV-cache analysis below shows why it is not
+even the right claim to reach for.
 
 ---
 
-## Hardware and Software
+## 1. Terminology
 
-| | |
+The project used to say "causal". It now says what it can defend.
+
+| Term | Meaning |
 |---|---|
-| GPU | NVIDIA RTX A6000 (48 GB VRAM) |
-| Driver | 570.153.02 |
-| CUDA toolkit | 12.8 |
-| PyTorch | 2.10.0+cu124 |
-| Python | 3.10 |
+| **structural overlap** | A geometric statistic over attention supports. Computed from attention probabilities alone, with no reference to behaviour. |
+| **behavioral contribution** | The measured change in loss when a specific interaction is removed. `Delta(e) = L(M \ e) - L(M)`. |
+| **contribution-gated** | Suppression gated on measured behavioral effect rather than on overlap. |
+| **intervention sensitivity** | A synonym for behavioral contribution, used when discussing the estimator. |
 
-**Critical:** Install PyTorch for CUDA 12.4 even if driver reports 12.8. Using cu128 builds causes a runtime version mismatch and training will fail silently.
+We estimate *the behavioral effect of removing an interaction*. We do not claim
+to establish causal importance: a single-edge ablation under a frozen mask is a
+narrow intervention, not an identification strategy.
+
+The variant historically called `crpa_causal` is now `crpa_contribution`. The
+old name resolves to the new one everywhere, and checkpoints saved under the old
+name load unchanged.
+
+### What an "edge" is
+
+An **edge** is `e = (layer, head, query position i, key position j)` with
+`j <= i` and `j` present in `Omega(i)`. Intervening on `e` sets that single
+pre-softmax score to `-inf`, for that head in that layer only. The surviving
+entries of row `i` renormalise, so the removed interaction's probability mass is
+redistributed rather than deleted.
+
+Overlap and intervention refer to the **same object**. In the original
+implementation they did not, which is the single most important thing this work
+fixes (see section 9).
 
 ---
 
-## Setup
+## 2. Architecture
+
+`Omega(i) = P(i) u G u C_k(i)`
+
+- **P(i)** tokens in the same positional partition, a local window of size `w`
+- **G** relay tokens at fixed intervals; every token may attend to a relay, and
+  a relay row attends causally to everything
+- **C_k(i)** up to `k` routed keys drawn from other *router* partitions
+
+Two attention implementations, numerically equivalent, selected by
+`--attention_impl`:
+
+| Implementation | Use |
+|---|---|
+| `dense_masked` | Materialises `(B, H, T, T)`. The reference path, and the default at short context. |
+| `sparse_gather` | Computes only the entries `Omega(i)` contains, chunked over query blocks. Required above roughly 8k tokens. |
+
+The gather path is not an optimisation, it is a precondition. At `T=65536` with
+12 heads a bf16 dense score tensor is about 103 GB for one layer, so the Tier 2
+experiment cannot be represented on the dense path on any GPU.
+`tests/test_attention.py::TestImplementationEquivalence` asserts the two agree
+to floating-point tolerance, including for ragged final blocks.
+
+A note on the two meanings of "partition": the local window `P(i)` is defined by
+*position*, while `C_k(i)` excludes keys sharing the query's *router*
+assignment. These are different notions. The original did this and we preserved
+the behaviour, but it is worth knowing when reading routing results.
+
+---
+
+## 3. The controlled experiment
+
+The backbone (embeddings, FFN, LayerNorm, residuals, weight tying) is identical
+across every variant, so a comparison between variants isolates attention.
+
+The central comparison is three variants:
+
+| Variant | Suppression criterion |
+|---|---|
+| `crpa_noreg` | none |
+| `crpa_naive` | rank candidates by structural overlap, remove the top `budget` |
+| `crpa_contribution` | measure behavioral contribution for the same candidates, remove the `budget` with the lowest delta |
+
+Both regularised variants draw from the **same candidate pool**, refresh on the
+**same cadence**, after the **same warmup**, with the **same removal budget**.
+Only the ranking criterion differs. That is what makes it a controlled
+comparison; the original gave the two variants different pool sizes, cadences
+and warmup behaviour.
+
+`dense` and `sliding` baselines are available via `--include_baselines` and are
+secondary context, not the comparison of interest.
+
+### Task
+
+Needle-in-Haystack over WikiText-2 filler. Key/value pairs are embedded at depth
+0.55 to 0.73, one partition away from the query, so answering requires a
+cross-partition hop through a relay. The last token is the query key and the
+target is its paired value.
+
+**Chance accuracy is 5.0%** (20 possible values). A variant at or below chance
+has not learned retrieval, and differences between two such variants are not
+evidence about retrieval quality. Every results table prints this.
+
+### Data separation
+
+| Role | Language-model source | Needle RNG stream |
+|---|---|---|
+| train | WikiText-2 `train` | `seed * 1000 + 0` |
+| calibration | WikiText-2 `validation` | `seed * 1000 + 1` |
+| evaluation | WikiText-2 `test` | `seed * 1000 + 2` |
+
+Anything chosen using data (contribution thresholds, gate decisions, the
+suppressible classification) is fitted on **calibration** and reported on
+**evaluation**. `Corpus.assert_splits_disjoint` hashes generated sequences and
+raises if two streams can collide; it runs at the start of every experiment.
+Split provenance is written into every result file.
+
+---
+
+## 4. Three tiers
+
+| Tier | Question | Scale |
+|---|---|---|
+| **1** | Does structural overlap predict behavioral contribution, and does gating on the latter beat gating on the former at a matched overlap budget? | 12.4M params, 512 tokens |
+| **2** | Does the diagnostic stay meaningful as context grows? | 137.8M params, 4k to 64k |
+| **3** | Does the relationship stay imperfect at large model scale? | frozen 7B/8B, no training |
+
+---
+
+## 5. Setup
 
 ```bash
 git clone https://github.com/ishaannk/crpa.git && cd crpa
-
 python3 -m venv .venv && source .venv/bin/activate
 
-# PyTorch — must use cu124 index
-pip install torch>=2.6.0 torchvision torchaudio \
-    --index-url https://download.pytorch.org/whl/cu124
+# CPU is enough for Tier 1 smoke runs, all tests, and the Tier 3 tiny-model check.
+pip install torch numpy scipy pandas matplotlib pyyaml pytest
 
-# Remaining deps — exact pins required to avoid conflicts
-pip install \
-    "numpy>=1.24.0,<2.0" \
-    "matplotlib>=3.7.0" \
-    "datasets>=2.14.0,<3.0" \
-    "transformers>=4.35.0,<5.0" \
-    "fsspec>=2023.9.0,<2024.2.0" \
-    "huggingface_hub>=0.34.0,<0.35.0" \
-    "pyarrow>=12.0,<14.0"
+# For WikiText-2 and the Tier 3 diagnostic
+pip install datasets transformers
 
-# Verify GPU
-python -c "import torch; print(torch.cuda.get_device_name(0))"
+# GPU (the original used CUDA 12.4 wheels on an A6000 driver reporting 12.8)
+pip install torch --index-url https://download.pytorch.org/whl/cu124
+
+# Optional, only for quantised Tier 3 loading
+pip install accelerate bitsandbytes
 ```
+
+Heavy dependencies stay optional. Tier 1 needs neither `accelerate` nor
+`bitsandbytes`.
 
 ---
 
-## Run
+## 6. Quick smoke test
+
+Runs on CPU in a couple of minutes, downloads nothing, and exercises every code
+path. Results are recorded with `status: "smoke"` and are never readable as
+completed measurements.
 
 ```bash
-# From crpa/ with venv active
-CUDA_VISIBLE_DEVICES=0 nohup python -u main.py --skip_multiseed \
-    > results/run_a6000.log 2>&1 &
-echo "PID: $!"
+python -m pytest tests/ -q -m "not slow"
+
+python -m experiments.tier1_multiseed --smoke --synthetic_data --seeds 42
+python -m experiments.matched_overlap  --smoke --synthetic_data --seeds 42 \
+    --lambdas 0.0 0.1 --tolerance 0.05
+python -m experiments.plot_all --results_dir results
 ```
 
-`-u` is required. Without it, Python buffers stdout and nothing is written to the log until the process exits.
-
-Monitor:
-```bash
-strings results/run_a6000.log | grep -E "step|variant=|Ret=|VERIFIED|FAILED|complete" | tail -20
-```
-
-Check process:
-```bash
-ps aux | grep main.py | grep -v grep
-```
+`--synthetic_data` substitutes a deterministic pseudo-corpus for WikiText-2.
+Language-model numbers from it are meaningless and are labelled as such.
 
 ---
 
-## Repository Structure
+## 7. Tier 1
 
+```bash
+# The original entry point still works, unchanged flags
+python main.py
+python main.py --max_iters 100 --block_size 64
+python main.py --figures_only          # now actually regenerates figures
+python main.py --skip_multiseed
+
+# Multi-seed replication, three variants x three seeds
+python -m experiments.tier1_multiseed --profile small_12m --seeds 42 1337 2024
+
+# Structural overlap vs behavioral contribution (the central dataset)
+python -m experiments.overlap_vs_contribution --profile small_12m \
+    --seeds 42 1337 2024 --n_per_layer 24
+
+# Estimator ranking stability across sample budgets
+python -m experiments.estimator_stability --profile small_12m \
+    --budgets 2 4 8 16 32 --replicates 3
+
+# Reproduce the original selection semantics for comparison
+python -m experiments.tier1_multiseed --intervention_mode legacy_rowpair
 ```
-config.py    all hyperparameters
-model.py     CRPAAttention, DifferentiableRouter, GPT (all variants)
-train.py     training loop, sensitivity estimation, co-training
-data.py      WikiText-2 LM batches + Needle-in-Haystack retrieval task
-evaluate.py  retrieval accuracy, overlap, throughput, routing diagnostics
-main.py      runs all experiments, writes results/ and checkpoints/
+
+### Matched-overlap sweep
+
+The reason this experiment exists: the previously published comparison put naive
+at overlap 0.251 and contribution-gated at 0.243. Those are close, not matched,
+and they came from a single identical regularization strength. A retrieval
+difference at two different structural budgets is not attributable to the
+selection criterion.
+
+```bash
+python -m experiments.matched_overlap --profile small_12m \
+    --lambdas 0.00 0.01 0.02 0.05 0.10 0.20 \
+    --seeds 42 1337 2024 --tolerance 0.01
 ```
+
+Pairing is on **realized** overlap measured after training, never on the
+configured lambda. Each naive run is matched to its single nearest
+contribution-gated counterpart within the same seed, and pairs outside the
+tolerance are discarded. `find_matched_overlap_pairs` is unit-tested, including
+a test that two runs at identical lambda but far apart in realized overlap do
+not pair.
 
 ---
 
-## Model Configuration
+## 8. Tier 2 and Tier 3
 
-| Hyperparameter | Value |
+```bash
+# Long-context diagnostic. 32k and 64k need an 80GB card.
+python -m experiments.long_context --profile medium_138m \
+    --context_lengths 4096 8192 16384 --n_candidates 32
+
+# Latency, throughput, memory, KV cache
+python -m experiments.benchmark --profile medium_138m \
+    --context_lengths 4096 8192 16384 --dtype bfloat16 --device cuda
+
+# Tier 3 tiny-model check (CPU, seconds)
+python -m experiments.large_model_diagnostic --smoke \
+    --model_id hf-internal-testing/tiny-random-LlamaForCausalLM \
+    --context_length 64 --n_candidates 8 --partition_size 16
+
+# Tier 3 real diagnostic (40GB+)
+python -m experiments.large_model_diagnostic \
+    --model_id meta-llama/Meta-Llama-3-8B \
+    --dtype bfloat16 --device_map auto \
+    --context_length 1024 --layers 8 16 24 --n_candidates 32
+```
+
+Tier 3 trains nothing. It loads a frozen model with `attn_implementation="eager"`
+and refuses to proceed otherwise, because FlashAttention and SDPA never
+materialise the probability matrix, so neither extraction nor a per-head
+intervention is possible through them. A 4D `attention_mask` cannot express a
+per-head edit either, since it broadcasts across heads, so the target layer's
+forward is patched directly.
+
+Before any numbers are recorded, `verify_instrumentation` removes a real edge and
+asserts its probability went to zero and the row still sums to 1. If it did not,
+the run raises. There is no path by which an inert intervention is reported as a
+null result. `trust_remote_code` is off by default.
+
+---
+
+## 9. What changed, and why
+
+The audit found the headline result rested on a broken intervention. All of
+these are fixed; the original file for any module is recoverable with
+`git show 7474c77:<file>`.
+
+| # | Finding | Fix |
+|---|---|---|
+| F1 | **The intervention measured a different object than the overlap statistic.** Candidates were pairs of *query rows* scored by support Jaccard, but the intervention masked the *edge* `i -> j`. Those are not the same thing, so the delta did not measure the effect of removing the overlapping interaction. | Candidates are edges; overlap and intervention refer to one object. |
+| F2 | **About half of all interventions were no-ops.** `i` and `j` were drawn independently within a partition and the mask is causal, so every sample with `i < j` masked an entry that was already `False`. Delta was identically 0, which is `<= eps`, so they were all classified redundant. | The edit counter ignores already-masked entries, and a zero-effect intervention raises instead of reporting 0. |
+| F3 | **Delta was measured under a randomly changing mask.** Routed keys were re-drawn from the global RNG whenever a step counter hit a multiple of 20, including during estimation, so baseline and intervened passes could use different masks. | Routing uses an explicit generator, and every measurement runs inside `frozen_structure()`. |
+| F4 | **`_mask_pair` was global across layers.** A "per-layer" sensitivity was the effect of an identical simultaneous intervention in all layers, recomputed once per layer. | Interventions are addressed per `(layer, head, query, key)`. |
+| F5 | **No train/calibration/evaluation separation.** All three roles drew from one global RNG. | Three disjoint streams plus three WikiText splits, with a leakage assertion. |
+| F6 | **naive vs contribution was confounded.** Different pool sizes, cadences and warmup. | Shared pool, cadence, warmup and budget. Only the criterion differs. |
+| F7 | **Overlap was measured on dropout-corrupted attention.** `_Alast` was stored after dropout, so rows did not sum to 1 during training. | Captured before dropout. |
+| F8 | **CRPA was masked-dense.** Every variant materialised `(B,H,T,T)`, so the published runtime table measured mask construction, not attention cost. | Added the gather path, with an equivalence test. |
+| F9 | **`--figures_only` was dead code.** The entire body sat inside `if not args.figures_only:`. Figures also required in-memory models, so no plot could regenerate from files. | Figures regenerate from `results/` with no training. |
+| F10 | **Routing diagnostics measured nothing.** The token embedding was fed to every layer's router instead of that layer's input. Every row of the published Table 5 was identical (entropy ln 4, load error 0). | Reads each layer's real input. See section 12. |
+| F11 | **Incomplete seeding.** `torch.cuda` was never seeded, and `measure_throughput` called `torch.manual_seed(0)` mid-run, clobbering the experiment seed. | All RNGs seeded; benchmarking uses a scoped `local_seed`. |
+| F12 | **Global mutable `CFG`.** Mutated and restored in place. No `.gitignore`. | Frozen dataclasses and YAML profiles; legacy dict preserved as a bridge. |
+| F13 | **The query key was never at the scored position.** The needle builder filled to `block_size - 3`, appended the query key, then padded with random filler, leaving the key two positions from the end while the model is scored at the last position. The docstring said "the last token is a query key". It was not. | The query key sits at exactly `block_size - 1`. |
+
+### A finding that is not a bug
+
+Under a last-token loss, most edges cannot affect the measurement at all: with a
+sparse causal mask, an early-position edge in a lower layer often has no path to
+the final position, so its delta is exactly zero as a matter of graph structure.
+Scoring those and then classifying `delta <= eps` as suppressible would repeat
+F2 through a different mechanism. Candidates are therefore filtered by
+`reachable_queries`, which propagates reachability backwards through the masks
+while accounting for the residual stream. The filter is recorded with results.
+
+### About the previously published numbers
+
+`results/table2_main.txt` and `results/table4_ablation.txt` are the original
+committed artifacts and are left in place as historical record. They report
+contribution-gated at 32.8% retrieval against naive at 5.3% and no-reg at 8.4%.
+Read them with three caveats:
+
+1. They came from the F1/F2 intervention, so the "causal" gate was selecting on
+   a statistic that was substantially composed of no-ops.
+2. Chance is 5.0%. Two of the three compared variants sit at 5.3% and 8.4%, so
+   the comparison is one partially-working model against two that are not
+   working.
+3. Single seed.
+
+`--intervention_mode legacy_rowpair` reproduces the original *candidate
+selection and intervention semantics* so the comparison can be made directly. It
+does not reproduce every incidental behaviour (head-averaged overlap, the
+unfrozen mask, dropout-contaminated capture); for that, check out the original
+commit.
+
+---
+
+## 10. Results layout
+
+```
+results/
+  tier1/
+    runs/<run_id>.json        one record per (variant, seed)
+    aggregate.json            mean, std, bootstrap 95% CI per variant
+    aggregate.csv
+    runs.csv
+    overlap_vs_contribution.csv    one row per candidate edge
+  matched_overlap/
+    runs/<run_id>.json
+    sweep.csv                 realized overlap, retrieval, loss, budget, seed, lambda
+    matched_pairs.csv         pairs within tolerance, with retrieval delta
+  estimator_stability/
+    stability.csv             spearman, top-k agreement, classification agreement
+  tier2/
+    long_context.csv          per context length, includes status
+    benchmark.csv             latency, throughput, memory, includes status
+    kv_cache.csv              measured or projected, labelled
+  tier3/
+    edges_<model>.csv         one row per intervened edge
+    diagnostic_<model>.json   correlations, groups, matched-budget comparison
+  figures/
+    figN_*.png
+    figN_*_data.csv           source data for every figure
+```
+
+Every record carries git SHA, timestamp, hostname, GPU, CUDA and PyTorch
+versions, dtype, full config, seed, context length, split provenance, and a
+**status**:
+
+| status | meaning |
 |---|---|
-| Layers | 6 |
-| Hidden dim | 192 |
-| Attention heads | 8 |
-| Total params | 12.4M |
-| Context length | 512 tokens |
-| Partition size | 128 tokens (4 partitions) |
-| Relay tokens | 4 |
-| Cross-partition k | 4 |
-| Routing temperature | 0.7 |
-| lambda_bal | 0.01 |
-| lambda_red | 0.05 |
-| Sensitivity eps | 0.03 |
-| Batch size | 16 |
-| Training steps | 4000 |
-| Learning rate | 3e-4 cosine decay |
-| Precision | bf16 (torch.autocast) |
-| Retrieval co-training ratio | 90% needle / 10% LM |
+| `completed` | ran to completion at the configured scale |
+| `smoke` | ran at reduced scale to validate the code path |
+| `not_run` | implemented, never executed |
+| `oom` | attempted, ran out of memory. **No metrics.** |
+| `unsupported` | the hardware or stack cannot run it |
+| `failed` | attempted and raised |
 
----
-
-## How CRPA Works
-
-Standard self-attention is O(n^2). At 64k tokens this is 4 billion interactions per layer. CRPA restricts each token to three sets:
-
-```
-Omega(i) = P(i) + G + C_k(i)
-           local   relay   routed
-```
-
-- **P(i)** — tokens in the same partition (local window of size w)
-- **G** — relay tokens at fixed intervals; attend globally, bridge partitions
-- **C_k(i)** — top-k learned cross-partition routing
-
-Complexity: O(n(w+g+k)), linear in n when w, g, k << n.
-
-**Causal sensitivity test.** Not all overlap is redundant. For each high-overlap pair (i,j), CRPA estimates:
-
-```
-Delta_ij = L(M \ E_ij) - L(M)
-```
-
-If Delta_ij <= eps, removing the edge does not affect retrieval — it is redundant. If Delta_ij > eps, the edge is causally necessary and is preserved.
-
-- **Naive regularization** — penalizes all high-overlap pairs regardless of Delta_ij
-- **Causal regularization** — penalizes only pairs where Delta_ij <= eps
-
----
-
-## Results
-
-### Table 2 — Main Results (block_size=512, RTX A6000)
-
-```
-Model                              PPL    Ret.Acc    Overlap
--------------------------------------------------------
-Dense Transformer               705.32      50.9%     0.348
-Sliding Window                  905.56      51.9%     0.298
-CRPA no reg.                   1081.31       8.4%     0.219
-CRPA naive reg.                1160.46       5.3%     0.251
-CRPA causal reg.               1108.03      32.8%     0.243  <-- best
-```
-
-Needle placed one partition away from query (depth 0.55-0.73). Sliding window cannot bridge partition boundaries. CRPA causal learns to relay information across partitions via relay tokens; naive regularization blindly destroys those relay paths.
-
----
-
-### Table 4 — Causal Overlap Ablation (core claim)
-
-```
-Variant                     Overlap    Ret.Acc     PPL
-------------------------------------------------
-No overlap reg.               0.219       8.4%  1081.31
-Naive overlap reg.            0.251       5.3%  1160.46
-Causal overlap reg.           0.243      32.8%  1108.03  <-- paper claim
-```
-
-**Naive suppression** penalizes all high-overlap attention pairs regardless of whether they matter — destroys relay-based cross-partition retrieval. Retrieval drops to 5.3% (near random).
-
-**Causal filtering** estimates Delta_ij on the retrieval task first. Relay paths show high sensitivity (Delta_ij > eps) and are preserved. Only confirmed-redundant overlaps are penalized. Retrieval reaches 32.8% — **6x better than naive, 4x better than no regularization**.
-
----
+Aggregation and plotting read results only through `numeric_records()`, which
+returns `completed` and `smoke` records and nothing else. An OOM cannot become a
+data point.
 
 ### Figures
 
-**Needle-in-Haystack Retrieval Accuracy (CRPA variants)**
+```bash
+python -m experiments.plot_all --results_dir results
+python -m experiments.plot_all --results_dir results --only fig1 fig4
+```
 
-![Retrieval Bar](results/fig_retrieval_bar.png)
+1. **Structural vs behavioral redundancy** overlap against intervention delta,
+   with the high-overlap/low-delta and high-overlap/high-delta groups highlighted
+2. **Matched overlap, different outcome** the sweep with matched pairs joined
+3. **Large-model diagnostic** requires real Tier 3 data; renders nothing without it
+4. **Seed robustness** three-seed Tier 1 with bootstrap intervals
+5. **Context scaling** quality (5a) and cost (5b) as separate files
+6. **Gate visualization** what each criterion removes, and what it costs
 
-**Overlap vs Retrieval — Causal reg. achieves lower overlap and higher retrieval simultaneously**
-
-![Overlap vs Retrieval](results/fig_overlap_vs_retrieval.png)
-
-**Retrieval vs Needle Depth — Causal reg. maintains accuracy across all positions**
-
-![Depth Sweep](results/fig_depth_sweep.png)
-
----
-
-## Comparison with "Attention is All You Need" (Vaswani et al., 2017)
-
-"Attention is All You Need" established the Transformer with full dense self-attention. Every token attends to every other token: O(n^2) time and memory. For a 64k-token sequence that is 4 billion attention entries per layer. The original paper offered no mechanism to handle long contexts or identify which interactions were necessary.
-
-| | Attention is All You Need | CRPA |
-|---|---|---|
-| Complexity | O(n^2) | O(n(w+g+k)) |
-| Practical context | ~1k tokens | 64k tokens |
-| Attention pattern | Dense, all pairs | Partitioned + relay + routed |
-| Overlap treatment | Not modeled | Measured via causal intervention |
-| Cross-region comms | Free via dense | Relay tokens (connectivity proved in Lemma 1) |
-| Routing | None | Differentiable, load-balanced |
-| Redundancy | Not addressed | Explicitly identified and filtered |
-
-**The conceptual difference.** Vaswani et al. assumed all attention interactions are necessary. CRPA asks which interactions are causally necessary using the intervention test Delta_ij = L(M \ E_ij) - L(M). If removing an edge does not change model behavior, the edge is redundant regardless of whether it appears structurally overlapping.
-
-This reframes redundancy as a causal allocation problem rather than a structural sparsity problem. Longformer and BigBird reduce interactions by fixed structure. CRPA reduces only interactions confirmed to have low causal contribution, preserving those that matter for retrieval.
-
-**Relationship.** CRPA is built on the Transformer from Vaswani et al. It replaces the attention mechanism while keeping the overall architecture (embeddings, FFN, layer norm, residual connections) unchanged.
+Every figure writes its source data as a CSV beside the PNG. Missing inputs
+produce a SKIP message naming the command that would generate them, never a
+placeholder plot.
 
 ---
 
-## Known Issues Fixed During Reproduction
+## 11. Compute, and measured versus projected
 
-| Issue | Fix |
+| Workload | Requirement |
 |---|---|
-| PyTorch cu128 fails with driver 12.8 | Install with `--index-url .../cu124` |
-| numpy>=2 conflicts with datasets | Pin `numpy<2.0` |
-| `redundancy_loss` returned `requires_grad=False` | Differentiable dot-product penalty on live attention weights |
-| stdout never written to log | Always run with `python -u` |
-| Gradient checkpointing + non-deterministic mask | Removed checkpointing (model fits in 2GB VRAM) |
-| Sensitivity cache key mismatch: crpa_causal was a no-op | Store `_redundant_pairs` during estimation; use directly in loss |
-| LM batches for sensitivity missed retrieval-critical edges | Use needle retrieval batches for Delta_ij estimation |
-| Needle in same partition as query: no cross-partition signal | Needle depth 0.55-0.73, one partition away, relay hop required |
+| Tests, Tier 1 smoke, Tier 3 tiny-model check | CPU, a few minutes |
+| Tier 1 full (3 variants x 3 seeds x 4000 iters) | ~1.5 to 2 h on an A6000 |
+| Matched-overlap sweep (6 lambdas x 2 methods x 3 seeds) | ~4 to 6 h on an A6000 |
+| Tier 2 at 4k/8k/16k, 137.8M | 48GB, ~1.5 to 2 h |
+| Tier 2 at 32k/64k | 80GB |
+| Tier 3 at 7B/8B in bf16 | 40GB+ |
+
+The contribution gate costs forward passes: one baseline plus one per candidate,
+per refresh. `crpa_contribution` is roughly 4x slower per step than
+`crpa_naive` at the default pool size, which is a real property of the method
+and not an implementation defect.
+
+### Measured versus projected
+
+| Quantity | Kind |
+|---|---|
+| Latency, throughput | **Measured.** CUDA events with warmup and per-iteration synchronisation on GPU; synchronised wall clock on CPU. Median reported alongside mean. |
+| Peak / allocated / reserved memory | **Measured** on CUDA. `NaN` on CPU, never 0. |
+| Realized overlap, retrieval, delta distributions | **Measured.** |
+| Actual CRPA edge count, sparsity ratio | **Measured** from the realised mask. |
+| `crpa_edges_upper_bound` | **Analytical upper bound.** The three sources can overlap, so the realised count is at or below it. |
+| KV cache | **Analytical** by default; `measured` when the tensors are actually allocated. Every row is labelled. |
+
+Neither figure is a measurement of decoding throughput. This repository has no
+incremental decoding loop.
+
+### CRPA does not bound the KV cache
+
+Worth stating plainly, because it is the opposite of what the framing invites.
+A token's routed set `C_k(i)` may reference *any* earlier position with a
+different router assignment, so no earlier key/value pair can be proven
+unnecessary and evicted. The cache grows linearly in `T`, exactly as the dense
+baseline's does.
+
+Only the local window and the relays are structurally evictable. That is
+reported separately as `crpa_bounded`, a variant that drops cross-partition
+routing, so the gap between what CRPA costs and what a bounded-cache variant
+would cost stays visible instead of being conflated.
+
+### Determinism
+
+`set_seed` seeds Python, NumPy, torch CPU and all CUDA devices.
+`set_seed(..., strict=True)` additionally requests deterministic CUDA
+algorithms, which is slower and raises on ops lacking a deterministic kernel.
+Even then, cuBLAS reductions need `CUBLAS_WORKSPACE_CONFIG=:4096:8` set before
+CUDA initialises, and atomics in some scatter/gather backward kernels remain
+nondeterministic on certain GPU and driver combinations. CPU runs are
+deterministic and that is what the test suite pins.
+
+---
+
+## 12. Routing: a secondary, largely negative result
+
+Routing was originally presented as a contribution. It is not one, and it is
+de-emphasized here rather than removed.
+
+The published Table 5 reported identical values for all three conditions
+(entropy 1.386, which is exactly `ln 4`, and load error 0.0000). Two things were
+going on. The diagnostic itself was broken (F10), and the routers had collapsed
+to near-uniform assignment, so there was little to measure. The corrected
+diagnostic is available via `crpa.evaluate.routing_diagnostics` and reports
+`max_entropy` alongside the measured entropy so collapse is visible rather than
+implied.
+
+The honest summary: the differentiable router did not demonstrably help, and the
+load-balance loss did not demonstrably change utilisation. We report it because
+a negative result that was previously presented as a positive one should be
+correctable from the repository.
+
+---
+
+## 13. Limitations
+
+- **Three seeds is few.** Bootstrap intervals over three points are wide. They
+  are reported rather than hidden, but they do not support fine distinctions.
+- **The retrieval task is synthetic and narrow.** Twenty possible values, chance
+  5%, one needle depth band. It probes relay-mediated cross-partition retrieval
+  specifically, and generalises to nothing on its own.
+- **Language modelling is barely trained.** With `ret_ratio = 0.90`, 90% of
+  steps are the retrieval task. Perplexities in the hundreds reflect that. They
+  are a control, not a language-modelling result.
+- **Single-edge ablation is a narrow intervention.** It does not account for
+  interactions between edges, and summing individual deltas (as Tier 3's
+  matched-budget comparison does across layers) is an additive approximation
+  that is labelled as such.
+- **Weak correlation is not independence.** Where overlap correlates weakly with
+  contribution, that means overlap is a weak predictor on that sample, for that
+  model. The sample is finite and the estimator is noisy. Correlations ship with
+  p-values, confidence intervals and `n` so the reader can judge.
+- **Reachability filtering changes the sampled population.** Restricting to
+  edges that can influence the loss is necessary (see section 9), but it means
+  the reported distribution is over reachable edges, not all edges.
+- **The two meanings of "partition"** (positional window versus router
+  assignment) are inherited and not resolved.
+- **No decoding loop**, so no KV-cache or throughput claim about generation.
+
+---
+
+## 14. Backwards compatibility
+
+- `python main.py` works with all original flags.
+- `from model import GPT; GPT('crpa_causal', 512, 50257, 'cpu')` works.
+- `from config import CFG` works; the dict is unchanged.
+- `from data import init_data, get_lm_batch, make_needle_batch` works.
+- `from train import train, estimate_loss` works.
+- `from evaluate import retrieval_accuracy, measure_overlap, ...` works.
+- Checkpoints saved by the original load into the new model with
+  `strict=True`; the state-dict keys are identical.
+
+Two behaviours deliberately differ. `--figures_only` now does something, and the
+shims report on the held-out evaluation split where the original reported on the
+split it also calibrated against.
+
+---
+
+## 15. Repository layout
+
+```
+crpa/                 the library
+  config.py           frozen dataclasses, YAML profiles, legacy bridge
+  attention.py        CRPA structure, both attention paths, RoPE, router
+  model.py            backbone, per-layer/per-head intervention, frozen structure
+  intervention.py     edges, plans, contribution measurement, gate selection
+  data.py             three-way split protocol, needle generator
+  metrics.py          overlap statistics, bootstrap CI, correlations
+  evaluate.py         split-aware evaluation
+  kvcache.py          cache accounting, measured vs projected
+  figures.py          the six figures
+  seeding.py          all RNGs, scoped seeding
+  runmeta.py          run ids, provenance, status, atomic writes
+experiments/          one module per question, all with --smoke and --dry_run
+configs/              small_12m, medium_138m, large_diagnostic
+tests/                pytest suite
+config.py model.py data.py train.py evaluate.py main.py
+                      backwards-compatibility shims over crpa/*
+```
+
+Long jobs are resumable: run ids are `sha256(config + seed)[:12]`, completed
+runs are skipped unless `--force`, and results are written atomically via a
+temporary file plus `os.replace`.
 
 ---
 
 ## Citation
 
-```bibtex
-@inproceedings{crpa2026,
-  title     = {Measuring and Reducing Redundant Attention in Long-Context Transformers},
-  booktitle = {Advances in Neural Information Processing Systems},
-  year      = {2026}
-}
-```
+The original repository described itself as a reproduction of a NeurIPS 2026
+paper. We have not verified that the paper exists, and this README makes no
+claim about it. What is reproducible is what is in this repository, at the
+scales the results files record.

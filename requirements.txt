@@ -1,12 +1,18 @@
---index-url https://download.pytorch.org/whl/cu124
+# Core. Enough for Tier 1, all tests, figures, and the Tier 3 tiny-model check.
+#
+# GPU users: install torch from the CUDA index first, then this file.
+#   pip install torch --index-url https://download.pytorch.org/whl/cu124
+# The original A6000 runs used cu124 wheels even though the driver reported
+# 12.8; cu128 builds caused a runtime version mismatch.
 torch>=2.6.0
-torchvision
-torchaudio
---index-url https://pypi.org/simple
-numpy>=1.24.0,<2.0
+numpy>=1.24.0
+scipy>=1.10.0
 matplotlib>=3.7.0
-datasets>=2.14.0,<3.0
-transformers>=4.35.0,<5.0
-fsspec>=2023.9.0,<2024.2.0
-huggingface_hub>=0.34.0,<0.35.0
-pyarrow>=12.0,<14.0
+PyYAML>=6.0
+
+# Language-model data (WikiText-2) and the Tier 3 frozen-model diagnostic.
+datasets>=2.14.0
+transformers>=4.35.0
+
+# Tests
+pytest>=7.4.0
