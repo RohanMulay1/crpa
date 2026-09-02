@@ -333,11 +333,37 @@ def main(argv: List[str] | None = None) -> int:
 
     if all_rows:
         write_csv(results_dir / "overlap_vs_contribution.csv", all_rows)
+
+        # Pooled across seeds, alongside the per-seed values. Reporting only a
+        # pooled number would hide sign instability between seeds, and
+        # reporting only one seed would overstate whatever that seed showed.
+        pooled = correlations(
+            [r["overlap"] for r in all_rows], [r["delta_loss"] for r in all_rows]
+        )
+        per_seed_r = {
+            seed: summary["correlation"].get("pearson_r", float("nan"))
+            for seed, summary in per_seed.items()
+        }
+        signs = {math.copysign(1.0, v) for v in per_seed_r.values()
+                 if isinstance(v, float) and math.isfinite(v)}
         write_json(results_dir / "overlap_vs_contribution.json", {
             "experiment": EXPERIMENT,
             "per_seed": per_seed,
+            "pooled_correlation": pooled,
+            "per_seed_pearson_r": per_seed_r,
+            "pearson_sign_consistent_across_seeds": len(signs) <= 1,
             "n_rows": len(all_rows),
+            "interpretation_note": (
+                "A weak correlation means overlap is a weak predictor on this "
+                "sample. It is not evidence of independence. If the sign is not "
+                "consistent across seeds, no directional claim is supported "
+                "either."
+            ),
         })
+        if len(signs) > 1:
+            print("\nNote: the correlation changes sign across seeds ({}), "
+                  "so no directional claim is supported.".format(
+                      {k: round(v, 3) for k, v in per_seed_r.items()}))
         print("\nWrote {} edge records to {}".format(
             len(all_rows), results_dir / "overlap_vs_contribution.csv"))
     else:
