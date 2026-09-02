@@ -1,0 +1,222 @@
+{
+  "experiment": "overlap_vs_contribution",
+  "per_seed": {
+    "42": {
+      "n_candidates": 1044,
+      "n_scored": 1044,
+      "correlation": {
+        "n": 1044,
+        "pearson_r": 0.08011909664745202,
+        "pearson_p": 0.009603445396980347,
+        "spearman_r": 0.08670744651290606,
+        "spearman_p": 0.0050546770932540985,
+        "pearson_ci_low": 0.019540880907979934,
+        "pearson_ci_high": 0.1401112100792778
+      },
+      "overlap_summary": {
+        "min": 0.0,
+        "max": 1.0,
+        "mean": 0.8820615464043572
+      },
+      "delta_summary": {
+        "min": -0.00031495094299316406,
+        "max": 0.00025153160095214844,
+        "mean": 2.176368830304493e-07
+      },
+      "group_thresholds": {
+        "overlap": 1.0,
+        "low_contribution": -2.384185791015625e-07,
+        "high_contribution": 0.0,
+        "high_overlap_q": 0.75,
+        "low_contribution_q": 0.25,
+        "high_contribution_q": 0.75
+      },
+      "n_high_overlap_low_contribution": 68,
+      "n_high_overlap_high_contribution": 198,
+      "interpretation_note": "A weak correlation indicates overlap is a weak predictor of contribution on this sample. It is not evidence of independence.",
+      "baseline_retrieval": 3.125,
+      "group_effects": {
+        "high_overlap_low_contribution": {
+          "n_edges": 68,
+          "n_score_positions_removed": 68,
+          "retrieval_after": 3.125,
+          "retrieval_drop": 0.0,
+          "mean_individual_delta": -4.93316089405733e-06,
+          "mean_overlap": 1.0
+        },
+        "high_overlap_high_contribution": {
+          "n_edges": 198,
+          "n_score_positions_removed": 198,
+          "retrieval_after": 3.125,
+          "retrieval_drop": 0.0,
+          "mean_individual_delta": 4.085627469149503e-06,
+          "mean_overlap": 1.0
+        }
+      },
+      "matched_budget": 130,
+      "selection_comparison": {
+        "naive": {
+          "n_edges": 130,
+          "n_score_positions_removed": 130,
+          "retrieval_after": 3.125,
+          "retrieval_drop": 0.0,
+          "mean_individual_delta": -2.0357278677133413e-07,
+          "mean_overlap": 1.0
+        },
+        "contribution_gated": {
+          "n_edges": 130,
+          "n_score_positions_removed": 130,
+          "retrieval_after": 3.125,
+          "retrieval_drop": 0.0,
+          "mean_individual_delta": -1.0758179884690505e-05,
+          "mean_overlap": 0.8286369232031016
+        }
+      }
+    },
+    "1337": {
+      "n_candidates": 1114,
+      "n_scored": 1114,
+      "correlation": {
+        "n": 1114,
+        "pearson_r": -0.053779610456865065,
+        "pearson_p": 0.07277071930971866,
+        "spearman_r": -0.10681108726017156,
+        "spearman_p": 0.0003553313961118049,
+        "pearson_ci_low": -0.11216058002440159,
+        "pearson_ci_high": 0.004971350684577923
+      },
+      "overlap_summary": {
+        "min": 0.0,
+        "max": 1.0,
+        "mean": 0.8623643339857379
+      },
+      "delta_summary": {
+        "min": -0.0004661083221435547,
+        "max": 0.00011372566223144531,
+        "mean": -1.1343074230146151e-06
+      },
+      "group_thresholds": {
+        "overlap": 0.95652174949646,
+        "low_contribution": -2.384185791015625e-07,
+        "high_contribution": 0.0,
+        "high_overlap_q": 0.75,
+        "low_contribution_q": 0.25,
+        "high_contribution_q": 0.75
+      },
+      "n_high_overlap_low_contribution": 123,
+      "n_high_overlap_high_contribution": 160,
+      "interpretation_note": "A weak correlation indicates overlap is a weak predictor of contribution on this sample. It is not evidence of independence.",
+      "baseline_retrieval": 4.166666666666667,
+      "group_effects": {
+        "high_overlap_low_contribution": {
+          "n_edges": 123,
+          "n_score_positions_removed": 123,
+          "retrieval_after": 4.166666666666667,
+          "retrieval_drop": 0.0,
+          "mean_individual_delta": -1.2271772555219448e-05,
+          "mean_overlap": 0.9931062503558833
+        },
+        "high_overlap_high_contribution": {
+          "n_edges": 160,
+          "n_score_positions_removed": 160,
+          "retrieval_after": 4.166666666666667,
+          "retrieval_drop": 0.0,
+          "mean_individual_delta": 1.5273690223693848e-06,
+          "mean_overlap": 0.9937556065618992
+        }
+      },
+      "matched_budget": 139,
+      "selection_comparison": {
+        "naive": {
+          "n_edges": 139,
+          "n_score_positions_removed": 139,
+          "retrieval_after": 4.166666666666667,
+          "retrieval_drop": 0.0,
+          "mean_individual_delta": -6.860966305080936e-09,
+          "mean_overlap": 1.0
+        },
+        "contribution_gated": {
+          "n_edges": 139,
+          "n_score_positions_removed": 139,
+          "retrieval_after": 4.166666666666667,
+          "retrieval_drop": 0.0,
+          "mean_individual_delta": -1.1850604050451045e-05,
+          "mean_overlap": 0.8445171812455431
+        }
+      }
+    },
+    "2024": {
+      "n_candidates": 1152,
+      "n_scored": 1152,
+      "correlation": {
+        "n": 1152,
+        "pearson_r": -0.14856853446926022,
+        "pearson_p": 4.078777569236184e-07,
+        "spearman_r": -0.12965072857618762,
+        "spearman_p": 1.0131012651809212e-05,
+        "pearson_ci_low": -0.2045711408375213,
+        "pearson_ci_high": -0.09159648958120903
+      },
+      "overlap_summary": {
+        "min": 0.4017857015132904,
+        "max": 1.0,
+        "mean": 0.8477017045434978
+      },
+      "delta_summary": {
+        "min": -4.291534423828125e-06,
+        "max": 1.9788742065429688e-05,
+        "mean": 1.388705439037747e-07
+      },
+      "group_thresholds": {
+        "overlap": 0.9166666865348816,
+        "low_contribution": 0.0,
+        "high_contribution": 0.0,
+        "high_overlap_q": 0.75,
+        "low_contribution_q": 0.25,
+        "high_contribution_q": 0.75
+      },
+      "n_high_overlap_low_contribution": 254,
+      "n_high_overlap_high_contribution": 280,
+      "interpretation_note": "A weak correlation indicates overlap is a weak predictor of contribution on this sample. It is not evidence of independence.",
+      "baseline_retrieval": 2.0833333333333335,
+      "group_effects": {
+        "high_overlap_low_contribution": {
+          "n_edges": 254,
+          "n_score_positions_removed": 254,
+          "retrieval_after": 2.0833333333333335,
+          "retrieval_drop": 0.0,
+          "mean_individual_delta": -3.0036986343503937e-08,
+          "mean_overlap": 0.9529568752435249
+        },
+        "high_overlap_high_contribution": {
+          "n_edges": 280,
+          "n_score_positions_removed": 280,
+          "retrieval_after": 2.0833333333333335,
+          "retrieval_drop": 0.0,
+          "mean_individual_delta": 7.748603820800782e-08,
+          "mean_overlap": 0.951862008869648
+        }
+      },
+      "matched_budget": 144,
+      "selection_comparison": {
+        "naive": {
+          "n_edges": 144,
+          "n_score_positions_removed": 144,
+          "retrieval_after": 2.0833333333333335,
+          "retrieval_drop": 0.0,
+          "mean_individual_delta": 3.808074527316623e-08,
+          "mean_overlap": 0.9791150010294385
+        },
+        "contribution_gated": {
+          "n_edges": 144,
+          "n_score_positions_removed": 144,
+          "retrieval_after": 2.0833333333333335,
+          "retrieval_drop": 0.0,
+          "mean_individual_delta": -4.569689432779948e-07,
+          "mean_overlap": 0.8183598394195238
+        }
+      }
+    }
+  },
+  "n_rows": 3310
+}

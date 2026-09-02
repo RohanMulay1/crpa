@@ -189,7 +189,7 @@ def fig_structural_vs_behavioral(results_root: Path, out_dir: Path) -> Path:
             "Pearson r = {:.3f}  (p = {:.3g})\nSpearman r = {:.3f}   n = {}".format(
                 stats.get("pearson_r", float("nan")), stats.get("pearson_p", float("nan")),
                 stats.get("spearman_r", float("nan")), stats.get("n", 0)),
-            xy=(0.985, 0.03), xycoords="axes fraction", ha="right", va="bottom",
+            xy=(0.015, 0.03), xycoords="axes fraction", ha="left", va="bottom",
             fontsize=8.5, color=INK_SECONDARY,
             bbox=dict(facecolor=SURFACE, edgecolor=GRID, boxstyle="round,pad=0.5"))
 
@@ -330,16 +330,20 @@ def fig_seed_robustness(results_root: Path, out_dir: Path) -> Path:
         raise FigureSkipped(
             "missing {}. Run: python -m experiments.tier1_multiseed".format(src))
 
-    order = ["crpa_noreg", "crpa_naive", "crpa_contribution"]
+    # Baselines come first when they are present. Without them a reader cannot
+    # tell whether the task is learnable at all, which is the difference
+    # between "CRPA does not learn this" and "nothing learns this".
+    order = ["dense", "sliding", "crpa_noreg", "crpa_naive", "crpa_contribution"]
     rows = [r for r in rows if r.get("variant") in order]
     rows.sort(key=lambda r: order.index(r["variant"]))
     if not rows:
-        raise FigureSkipped("aggregate contains none of the central variants")
+        raise FigureSkipped("aggregate contains none of the known variants")
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10.4, 4.4))
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11.6, 4.6))
 
     for ax, field, ylabel, title in (
-        (ax1, "retrieval_accuracy", "Retrieval accuracy (%)", "Retrieval, 3 seeds"),
+        (ax1, "retrieval_accuracy", "Retrieval accuracy (%)",
+         "Retrieval accuracy, 3 seeds"),
         (ax2, "realized_overlap", "Realized overlap", "Overlap, 3 seeds"),
     ):
         _style(ax, "", ylabel, title)
@@ -357,21 +361,28 @@ def fig_seed_robustness(results_root: Path, out_dir: Path) -> Path:
         ax.errorbar(xs, means, yerr=err, fmt="none", ecolor=INK_SECONDARY,
                     elinewidth=1.4, capsize=5, capthick=1.4, zorder=4)
         ax.set_xticks(xs)
-        ax.set_xticklabels([VARIANT_LABEL[r["variant"]] for r in rows],
-                           fontsize=8, color=INK_SECONDARY)
-        for x, mean in zip(xs, means):
-            if math.isfinite(mean):
-                ax.annotate("{:.3g}".format(mean), xy=(x, mean),
-                            xytext=(0, 7), textcoords="offset points",
-                            ha="center", fontsize=8.5, color=INK)
+        ax.set_xticklabels(
+            [VARIANT_LABEL[r["variant"]].replace(" (", "\n(") for r in rows],
+            fontsize=7.5, color=INK_SECONDARY)
+        # Label above the upper interval cap, not on the bar top, where the
+        # error bar would run straight through the text.
+        for x, mean, hi in zip(xs, means, highs):
+            if not math.isfinite(mean):
+                continue
+            top = hi if math.isfinite(hi) else mean
+            ax.annotate("{:.3g}".format(mean), xy=(x, top),
+                        xytext=(0, 8), textcoords="offset points",
+                        ha="center", fontsize=8.5, color=INK)
+        ax.margins(y=0.16)
 
     chance = _num(rows[0].get("chance_accuracy_mean", "nan"))
     if math.isfinite(chance):
         ax1.axhline(chance, color=INK_MUTED, linewidth=1.4, linestyle=(0, (5, 3)),
                     zorder=5)
+        # Left edge: the right-hand bars carry value labels near this height.
         ax1.annotate("chance ({:.0f}%)".format(chance),
-                     xy=(ax1.get_xlim()[1], chance), xytext=(-4, 4),
-                     textcoords="offset points", ha="right", va="bottom",
+                     xy=(ax1.get_xlim()[0], chance), xytext=(4, 4),
+                     textcoords="offset points", ha="left", va="bottom",
                      fontsize=8, color=INK_MUTED)
 
     fig.suptitle("Seed robustness: mean with bootstrap 95% interval over 3 seeds",

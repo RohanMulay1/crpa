@@ -1,0 +1,66 @@
+{
+  "experiment": "estimator_stability",
+  "rows": [
+    {
+      "seed": 42,
+      "sample_budget": 2,
+      "n_candidates": 24,
+      "top_k": 8,
+      "mean_spearman": -0.08704186076626365,
+      "std_spearman": 0.04686476036544026,
+      "mean_top_k_agreement": 0.375,
+      "mean_classification_agreement": 1.0,
+      "n_replicates": 3,
+      "n_comparisons": 3
+    },
+    {
+      "seed": 42,
+      "sample_budget": 4,
+      "n_candidates": 24,
+      "top_k": 8,
+      "mean_spearman": 0.03670133274938129,
+      "std_spearman": 0.13100314426550103,
+      "mean_top_k_agreement": 0.3333333333333333,
+      "mean_classification_agreement": 1.0,
+      "n_replicates": 3,
+      "n_comparisons": 3
+    },
+    {
+      "seed": 42,
+      "sample_budget": 8,
+      "n_candidates": 24,
+      "top_k": 8,
+      "mean_spearman": -0.1143636978988784,
+      "std_spearman": 0.13800880217195546,
+      "mean_top_k_agreement": 0.20833333333333334,
+      "mean_classification_agreement": 1.0,
+      "n_replicates": 3,
+      "n_comparisons": 3
+    },
+    {
+      "seed": 42,
+      "sample_budget": 16,
+      "n_candidates": 24,
+      "top_k": 8,
+      "mean_spearman": -0.10684101296898468,
+      "std_spearman": 0.2514388427681481,
+      "mean_top_k_agreement": 0.3333333333333333,
+      "mean_classification_agreement": 1.0,
+      "n_replicates": 3,
+      "n_comparisons": 3
+    },
+    {
+      "seed": 42,
+      "sample_budget": 32,
+      "n_candidates": 24,
+      "top_k": 8,
+      "mean_spearman": 0.12128508036856105,
+      "std_spearman": 0.11361839960741005,
+      "mean_top_k_agreement": 0.4166666666666667,
+      "mean_classification_agreement": 1.0,
+      "n_replicates": 3,
+      "n_comparisons": 3
+    }
+  ],
+  "note": "Empirical ranking stability. No theoretical variance bound is claimed; a bound on estimator variance would not establish ranking stability, which is what the gate depends on."
+}
