@@ -345,15 +345,20 @@ def main(argv: List[str] | None = None) -> int:
         print("  scored {} edges | pearson r={:.3f} (p={:.3g}) | spearman r={:.3f}".format(
             summary["n_scored"], corr.get("pearson_r", float('nan')),
             corr.get("pearson_p", float('nan')), corr.get("spearman_r", float('nan'))))
+        calib = summary.get("eps_calibration", {})
+        if calib.get("vacuous"):
+            print("  warning: {}".format(calib.get("note")))
         ge = summary["group_effects"]
-        print("  high-overlap/low-contribution : n={} mean delta={:.2e} retrieval drop={:.1f}pp".format(
-            ge["high_overlap_low_contribution"]["n_edges"],
-            ge["high_overlap_low_contribution"]["mean_individual_delta"],
-            ge["high_overlap_low_contribution"]["retrieval_drop"]))
-        print("  high-overlap/high-contribution: n={} mean delta={:.2e} retrieval drop={:.1f}pp".format(
-            ge["high_overlap_high_contribution"]["n_edges"],
-            ge["high_overlap_high_contribution"]["mean_individual_delta"],
-            ge["high_overlap_high_contribution"]["retrieval_drop"]))
+        for name, label in (("high_overlap_low_contribution", "low-contribution "),
+                            ("high_overlap_high_contribution", "high-contribution")):
+            g = ge[name]
+            # The LM-loss column is the one with power: retrieval is pinned at
+            # chance, so its drop is 0.0pp for every group in every seed.
+            print("  high-overlap/{}: n={:<5} mean delta={:+.2e}  "
+                  "held-out LM loss {:+.3e}  retrieval drop={:.1f}pp".format(
+                      label, g["n_edges"], g["mean_individual_delta"],
+                      g.get("lm_loss_increase", float("nan")),
+                      g["retrieval_drop"]))
 
     if all_rows:
         write_csv(results_dir / "overlap_vs_contribution.csv", all_rows)
