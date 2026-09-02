@@ -14,6 +14,15 @@ We are **not** claiming CRPA is a fast long-context transformer. The evidence
 here does not support that, and the KV-cache analysis below shows why it is not
 even the right claim to reach for.
 
+**On the published result.** The original repository reported 32.8% retrieval
+for contribution-gated CRPA against 5.3% for naive. Running that code
+unmodified at its own commit gives **7.5%**, below its own 10.9%
+no-regularization baseline, and its own verification script reports FAILED on
+the claim. Four of the other five rows reproduce closely, so this is not an
+environment artifact. Section 10 has the numbers and the controls that
+establish it. What survives, and what this branch measures properly, is the
+weaker and better-supported claim above.
+
 ---
 
 ## 1. Terminology
@@ -393,6 +402,59 @@ it is stronger than a consistently weak correlation would have been.
 Among edges above the same overlap threshold, both contribution tails are
 populated in every seed, so structural overlap does not identify a homogeneous
 dispensable set.
+
+### Controls: the published headline does not reproduce from its own code
+
+Four attribution controls were run, because several things changed at once here
+and a drop could not otherwise be assigned to any of them.
+
+**1. Baselines.** Dense and sliding reproduce the original closely, which
+establishes that the task is learnable and that the data, splits, training and
+evaluation are sound.
+
+**2. Legacy gate semantics** (`--intervention_mode legacy_rowpair`) gives 4.4%
+over three seeds, against 4.3% for the repaired gate. The change in intervention
+semantics is not what moved the number.
+
+**3. The original implementation, unmodified.** Commit 7474c77 was cloned and
+run with a single one-line change: the dataset id, because newer
+`huggingface_hub` rejects the bare `wikitext` repo name and the script cannot
+otherwise start. `git diff --stat` over the source is that one line.
+
+| variant | published | reproduced here | |
+|---|---|---|---|
+| Dense Transformer | 50.9% | 55.6% | reproduces |
+| Sliding Window | 51.9% | 52.5% | reproduces |
+| CRPA no reg. | 8.4% | 10.9% | reproduces |
+| CRPA naive reg. | 5.3% | 5.3% | reproduces exactly |
+| **CRPA causal reg.** | **32.8%** | **7.5%** | **does not reproduce** |
+
+Four of five rows come back. The one that does not is the one the paper's claim
+rests on, and it misses by a factor of 4.4, landing barely above the 5.0% chance
+rate and **below its own no-regularization baseline**. The original's own
+verification code says so, in its own words:
+
+```
+S3 Naive reduces overlap most: 0.256 < 0.237  -> FAILED
+S5 Causal beats no-reg:        7.5% > 10.9%   -> FAILED
+```
+
+So the drop reported in this work is not caused by anything changed here. The
+published number is not reproducible from the commit that published it, and F1
+and F2 explain why it was never measuring dispensability in the first place: the
+gate selected on a statistic substantially composed of no-op interventions.
+
+**Caveat.** This ran on an L40S with torch 2.4.1+cu124, not the RTX A6000 with
+torch 2.10.0+cu124 named in the original README, and single-seed as published.
+Environment differences cannot be excluded in principle. They are an unlikely
+explanation, though, since the other four rows reproduce on the same stack.
+
+A further observation from that run, which supports F8: the *sliding-window*
+baseline is the slowest configuration at every context length (23.5 ms at 512
+against 9.7 ms for dense), because its mask was built with a Python loop over
+tokens. The original runtime table was dominated by mask-construction cost
+rather than by attention cost, which is why its sub-quadratic claim cannot be
+read as a statement about attention.
 
 ### The contribution estimator does not produce a stable ranking
 
