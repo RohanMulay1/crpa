@@ -64,6 +64,11 @@ def write_legacy_tables(results_dir: Path) -> None:
 
     Reads the structured aggregate rather than recomputing, so the text tables
     and the JSON can never disagree.
+
+    These overwrite ``results/table*.txt`` on each run, as the original did.
+    The artifacts published with the original implementation are preserved
+    separately under ``results/original_published/`` so a run cannot destroy
+    the historical record.
     """
     from experiments.tier1_multiseed import aggregate
 

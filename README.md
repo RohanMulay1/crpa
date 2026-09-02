@@ -323,7 +323,7 @@ while accounting for the residual stream. The filter is recorded with results.
 
 ### About the previously published numbers
 
-`results/table2_main.txt` and `results/table4_ablation.txt` are the original
+`results/original_published/` holds the original
 committed artifacts and are left in place as historical record. They report
 contribution-gated at 32.8% retrieval against naive at 5.3% and no-reg at 8.4%.
 Read them with three caveats:
