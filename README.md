@@ -343,7 +343,85 @@ commit.
 
 ---
 
-## 10. Results layout
+## 10. What we measured
+
+Everything below was run on this branch. Commands are in section 7. Anything
+not listed here was not run, and section 11 says so explicitly.
+
+Hardware: one NVIDIA L40S (46 GB), torch 2.4.1+cu124, bf16 autocast, WikiText-2
+via `Salesforce/wikitext`. Small profile: 12.4M parameters, 512 tokens, 4000
+iterations, seeds 42 / 1337 / 2024.
+
+### Tier 1: the central comparison
+
+| variant | retrieval % (mean over 3 seeds) | realized overlap | originally published |
+|---|---|---|---|
+| dense | **53.6** | 0.401 | 50.9 |
+| sliding window | *(see results/tier1)* | | 51.9 |
+| `crpa_noreg` | 4.4 | 0.244 | 8.4 |
+| `crpa_naive` | 4.6 | 0.264 | 5.3 |
+| `crpa_contribution` | 4.3 | 0.222 | 32.8 |
+
+**Chance is 5.0%.** All three CRPA variants sit on it; their bootstrap intervals
+overlap each other and the chance line. The dense and sliding baselines
+reproduce the original closely, which is what establishes that the task is
+learnable and that the pipeline, splits and evaluation are sound. The CRPA null
+is therefore a fact about CRPA at this scale, not an artifact.
+
+Note the direction of the overlap column: dense has the **highest** realized
+overlap and by far the best retrieval. Reducing overlap is not what makes this
+task work.
+
+### Structural overlap versus behavioral contribution
+
+3310 individually intervened edges across three seeds, contribution measured on
+the calibration split, reported on evaluation.
+
+| | Pearson r | p | n |
+|---|---|---|---|
+| pooled | **0.005** | 0.771 | 3310 |
+| seed 42 | +0.080 | 0.0096 | 1044 |
+| seed 1337 | -0.054 | 0.073 | 1114 |
+| seed 2024 | -0.149 | 4.1e-07 | 1152 |
+
+Pooled, there is no detectable linear relationship. Per seed, the correlation is
+weak *and changes sign*, with two seeds significant in opposite directions. A
+single-seed study would have reported a confident positive or negative result;
+both would have been artifacts. This is the central evidence for the claim, and
+it is stronger than a consistently weak correlation would have been.
+
+Among edges above the same overlap threshold, both contribution tails are
+populated in every seed, so structural overlap does not identify a homogeneous
+dispensable set.
+
+### The contribution estimator does not produce a stable ranking
+
+Replicate agreement at seed 42, 24 candidates, 3 replicates per budget:
+
+| sample budget | Spearman between replicates | top-8 agreement |
+|---|---|---|
+| 2 | -0.087 | 0.38 |
+| 4 | +0.037 | 0.33 |
+| 8 | -0.114 | 0.21 |
+| 16 | -0.107 | 0.33 |
+| 32 | +0.121 | 0.42 |
+
+The ranking is indistinguishable from chance (top-8 of 24 is 0.33 by chance) and
+does not improve from 2 samples to 32. Since the gate ranks by this estimate,
+contribution gating is selecting close to at random here, which is the
+mechanism behind its being indistinguishable from naive and from no
+regularization.
+
+Classification agreement is 1.00 at every budget. That is not stability. The
+default `eps = 0.03` sits about four orders of magnitude above the observed
+delta scale of ~1e-6, so every edge classifies as suppressible and the
+threshold separates nothing. `eps_calibration()` now flags this, and it
+compounds with F2: no-op interventions produced delta exactly 0, which a
+threshold this large would admit regardless.
+
+---
+
+## 11. Results layout
 
 ```
 results/
@@ -409,7 +487,7 @@ placeholder plot.
 
 ---
 
-## 11. Compute, and measured versus projected
+## 12. Compute, and measured versus projected
 
 | Workload | Requirement |
 |---|---|
@@ -465,7 +543,7 @@ deterministic and that is what the test suite pins.
 
 ---
 
-## 12. Routing: a secondary, largely negative result
+## 13. Routing: a secondary, largely negative result
 
 Routing was originally presented as a contribution. It is not one, and it is
 de-emphasized here rather than removed.
@@ -485,7 +563,7 @@ correctable from the repository.
 
 ---
 
-## 13. Limitations
+## 14. Limitations
 
 - **Three seeds is few.** Bootstrap intervals over three points are wide. They
   are reported rather than hidden, but they do not support fine distinctions.
@@ -516,7 +594,7 @@ correctable from the repository.
 
 ---
 
-## 14. Backwards compatibility
+## 15. Backwards compatibility
 
 - `python main.py` works with all original flags.
 - `from model import GPT; GPT('crpa_causal', 512, 50257, 'cpu')` works.
@@ -533,7 +611,7 @@ split it also calibrated against.
 
 ---
 
-## 15. Repository layout
+## 16. Repository layout
 
 ```
 crpa/                 the library
