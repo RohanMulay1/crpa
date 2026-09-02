@@ -573,6 +573,47 @@ measuring mask construction rather than attention. Its own numbers show it: the
 sliding-window row was the slowest configuration there too, because its mask
 was built with a Python loop over tokens.
 
+### Tier 2: does the diagnostic survive the jump to 138M?
+
+No, and the reason is arithmetic rather than anything about attention.
+
+At the 138M profile, single-edge interventions produce loss changes at or below
+what float32 can represent. At 4096 the distribution is mean -4.0e-08 with
+sd 1.9e-07; at 8192 every single-edge delta is exactly 0.0.
+
+Removing the whole candidate set at once does not rescue it:
+
+| context | single-edge delta p90 | group delta, 24 edges | sparsity |
+|---|---|---|---|
+| 4096 | 0.0 | 9.537e-07 | 0.142 |
+| 8192 | 0.0 (all exactly zero) | 9.537e-07 | 0.072 |
+
+That group figure is not a small measurement. It is
+**9.5367e-07 = 2^-20, exactly one float32 ULP** for a loss anywhere in [8, 16),
+which is where this untrained model's loss sits. The identical value at two
+context lengths is the giveaway: it is quantization, not signal.
+
+So the honest statement is not "removing these edges had no effect". It is
+**"no measurement was made"**. Reporting the former would repeat, in a new
+place, precisely the error this work exists to correct.
+
+Why it happens: 24 edges out of 14 layers x 12 heads x 4096 queries x 552
+permitted keys is a vanishingly small fraction of the model's attention, and
+the loss is a scalar averaged over the whole sequence. The signal is real but
+smaller than the last bit of the number carrying it.
+
+Two remedies suggest themselves, and neither is claimed to work here because
+neither was tested: accumulate the loss in float64, or intervene on a
+materially larger fraction of edges. The machinery supports both -
+`InterventionPlan` takes any number of edges - but the compute budget for this
+work did not extend to establishing which is sufficient.
+
+**What this means for the method.** The contribution diagnostic is workable at
+12.4M and 512 tokens, where deltas are around 1e-6 to 1e-4 and sit above the
+noise floor. It is not workable as specified at 138M. Any claim that the
+approach scales needs to address measurement precision first, and no such claim
+is made here.
+
 ### What was not run
 
 Stated explicitly so nothing here is read as a result.
