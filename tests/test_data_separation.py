@@ -140,3 +140,40 @@ class TestValidation:
             assert cfg.val_range[0] <= target <= cfg.val_range[1]
             pos = seq.index(query_key)
             assert seq[pos + 1] == target, "query key is not followed by its value"
+
+
+class TestNeedlePosition:
+    """The query key must sit at the position the model is scored on.
+
+    The original filled to ``block_size - 3``, appended the query key, then
+    padded with random filler, so the scored position always held a filler
+    token despite the docstring saying "the last token is a query key".
+    """
+
+    def test_query_key_is_at_the_scored_position(self):
+        cfg = DataConfig()
+        gen = NeedleGenerator(cfg, TRAIN, 42)
+        for _ in range(20):
+            seq, _ = gen._one(128, 2, None)
+            assert len(seq) == 128
+            assert cfg.key_range[0] <= seq[-1] <= cfg.key_range[1], (
+                "scored position holds {} which is not a query key".format(seq[-1])
+            )
+
+    def test_legacy_position_reproduces_the_original(self):
+        cfg = DataConfig(query_key_at_end=False)
+        gen = NeedleGenerator(cfg, TRAIN, 42)
+        seq, _ = gen._one(128, 2, None)
+        assert len(seq) == 128
+        # Original behaviour: the scored position holds filler, not the key.
+        assert cfg.filler_range[0] <= seq[-1] <= cfg.filler_range[1]
+        keys = [i for i, t in enumerate(seq)
+                if cfg.key_range[0] <= t <= cfg.key_range[1]]
+        assert max(keys) < 127, "query key should not be at the scored position"
+
+    def test_both_modes_produce_valid_lengths(self):
+        for flag in (True, False):
+            gen = NeedleGenerator(DataConfig(query_key_at_end=flag), EVAL, 7)
+            for block in (64, 128, 512):
+                seq, _ = gen._one(block, 2, None)
+                assert len(seq) == block

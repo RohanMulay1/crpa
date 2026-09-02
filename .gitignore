@@ -17,18 +17,15 @@ checkpoints/
 *.safetensors
 *.bin
 
-# Generated experiment outputs.
-# results/ is tracked for the historical A6000 artifacts committed on main,
-# but per-run payloads and regenerated figures are not.
-results/**/runs/
-results/**/raw/
-results/tier1/
-results/tier2/
-results/tier3/
-results/matched_overlap/
-results/estimator_stability/
-results/figures/
+# Experiment outputs.
+#
+# Results are small and are the evidence for the claims, so they are tracked:
+# aggregates, per-run JSON records, the edge datasets, and the figures with
+# their source data. What is NOT tracked is anything heavy or throwaway.
 results/smoke/
+results/gpu_smoke/
+results/**/raw/
+*.tgz
 
 # Caches
 .pytest_cache/

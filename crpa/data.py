@@ -141,7 +141,7 @@ class NeedleGenerator:
         # contradicting the documented task ("the last token is a query key")
         # and adding avoidable noise. The query key now sits at exactly
         # block_size - 1.
-        limit = block_size - 1
+        limit = block_size - 1 if self.cfg.query_key_at_end else block_size - 3
         while len(seq) < limit:
             remaining = [p for p in kv_items if p[0] not in inserted]
             has_room = (limit - len(seq)) >= 2
@@ -161,6 +161,13 @@ class NeedleGenerator:
             qk = rng.choice(sorted(inserted))
             target = kv[qk]
         seq.append(qk)
+
+        if not self.cfg.query_key_at_end:
+            # Original behaviour: pad past the query key with filler, so the
+            # scored position (block_size - 1) is not the query key.
+            seq = seq[:block_size]
+            while len(seq) < block_size:
+                seq.append(rng.randint(*fr))
 
         if len(seq) != block_size:
             raise RuntimeError(

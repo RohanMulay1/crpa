@@ -198,6 +198,14 @@ class DataConfig:
     needle_depth_range: Tuple[float, float] = (0.55, 0.73)
     needle_depths: Tuple[float, ...] = (0.1, 0.3, 0.5, 0.7, 0.9)
     n_needles: int = 2
+
+    # True places the query key at the scored position (block_size - 1).
+    # False reproduces the original construction, which left the query
+    # key two positions from the end and scored the model on a filler
+    # token. Kept so the effect of that fix can be attributed rather
+    # than inferred.
+    query_key_at_end: bool = True
+
     dataset_name: str = "Salesforce/wikitext"
     dataset_config: str = "wikitext-2-raw-v1"
 

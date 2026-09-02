@@ -41,6 +41,7 @@ from crpa.evaluate import retrieval_accuracy
 from crpa.intervention import (
     Candidate,
     InterventionPlan,
+    make_lm_loss_fn,
     make_needle_loss_fn,
     reachable_queries,
     sample_candidate_edges,
@@ -78,11 +79,30 @@ def collect_candidates(
     seed: int,
     n_per_layer: int = 24,
     batch_size: int = 8,
+    loss: str = "needle",
 ) -> List[Candidate]:
-    """Enumerate and score candidate edges on the calibration split."""
+    """Enumerate and score candidate edges on the calibration split.
+
+    Args:
+        loss: which behaviour to measure contribution against.
+
+            ``needle`` last-token retrieval cross-entropy. This is what the
+                gate uses, but it is only informative if the model has
+                actually learned retrieval; against a model at chance it
+                perturbs a near-random predictor.
+            ``lm`` mean next-token cross-entropy over all positions. Always
+                informative, and it makes every edge reachable by
+                construction, so no reachability filtering is applied.
+    """
     block = cfg.model.block_size
-    x, y = corpus.needle_batch(CALIBRATION, block, batch_size, device=device)
-    loss_fn = make_needle_loss_fn(x, y)
+    if loss == "lm":
+        x, y = corpus.lm_batch(CALIBRATION, block, batch_size, device)
+        loss_fn = make_lm_loss_fn(x, y)
+    elif loss == "needle":
+        x, y = corpus.needle_batch(CALIBRATION, block, batch_size, device=device)
+        loss_fn = make_needle_loss_fn(x, y)
+    else:
+        raise ValueError("loss must be 'needle' or 'lm', got {!r}".format(loss))
     rng = np.random.default_rng(seed + 4242)
     legacy = cfg.contribution.mode == "legacy_rowpair"
 
@@ -91,7 +111,9 @@ def collect_candidates(
         with model.capture_probabilities(True):
             model(x)
         probs = model.attention_probabilities()
-        reach = None if legacy else reachable_queries(model, block)
+        # Under an all-positions loss every edge can matter, so no
+        # reachability filter is needed or appropriate.
+        reach = None if (legacy or loss == "lm") else reachable_queries(model, block)
         relays = relay_positions(block, cfg.model.n_relays)
 
         pool: List[Candidate] = []
@@ -211,6 +233,10 @@ def main(argv: List[str] | None = None) -> int:
     parser.add_argument("--variant", default="crpa_contribution")
     parser.add_argument("--n_per_layer", type=int, default=24,
                         help="candidate edges sampled per layer per head")
+    parser.add_argument("--loss", default="needle", choices=["needle", "lm"],
+                        help="behaviour to measure contribution against; 'lm' is "
+                             "the honest choice when the model has not learned "
+                             "the retrieval task")
     parser.add_argument("--matched_budget", type=int, default=None,
                         help="removal budget for the naive-vs-contribution "
                              "comparison at a matched number of removals")
@@ -248,7 +274,8 @@ def main(argv: List[str] | None = None) -> int:
             train(model, run_cfg, corpus, device, verbose=False)
 
             candidates = collect_candidates(
-                model, run_cfg, corpus, device, seed, n_per_layer=args.n_per_layer
+                model, run_cfg, corpus, device, seed,
+                n_per_layer=args.n_per_layer, loss=args.loss,
             )
             summary, groups = analyse(candidates, run_cfg)
 
@@ -256,6 +283,7 @@ def main(argv: List[str] | None = None) -> int:
                 model, corpus, run_cfg.model.block_size, device, n_batches=12
             )
             summary["baseline_retrieval"] = base_ret
+            summary["contribution_loss"] = args.loss
 
             # Experiment 4: do structurally similar groups behave differently?
             summary["group_effects"] = {

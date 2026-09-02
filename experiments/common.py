@@ -47,6 +47,10 @@ def add_common_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
                         help="print what would run, execute nothing")
     parser.add_argument("--force", action="store_true",
                         help="recompute runs that already have a completed record")
+    parser.add_argument("--legacy_needle_position", action="store_true",
+                        help="reproduce the original needle construction, which "
+                             "left the query key two positions before the scored "
+                             "position; use to attribute the effect of that fix")
     parser.add_argument("--synthetic_data", action="store_true",
                         help="use a deterministic pseudo-corpus instead of WikiText-2; "
                              "language-model numbers from it are meaningless and are "
@@ -101,6 +105,8 @@ def config_from_args(args: argparse.Namespace) -> ExperimentConfig:
         overrides["contribution.mode"] = args.intervention_mode
     if args.attention_impl is not None:
         overrides["model.attention_impl"] = args.attention_impl
+    if getattr(args, "legacy_needle_position", False):
+        overrides["data.query_key_at_end"] = False
     return cfg.replace(**overrides) if overrides else cfg
 
 
