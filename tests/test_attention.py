@@ -245,3 +245,67 @@ class TestSparseProbabilityCapture:
                     if sp.query_lo <= r < sp.query_lo + sp.n_queries}
         flagged = {sp.query_lo + i for i in range(sp.n_queries) if bool(sp.is_relay[i])}
         assert flagged == expected
+
+
+class TestCaptureIsOptIn:
+    """Probability capture must never happen unless it was asked for.
+
+    On the gather path a dense capture is (B, H, T, T): 3 GB at 8k and 12 GB at
+    16k with 12 heads. It defaulted to on, so every forward pass outside a
+    capture context materialised it, and the Tier 2 diagnostic ran out of
+    memory doing exactly what the sparse path exists to avoid.
+    """
+
+    def _model(self, impl):
+        from crpa.config import ModelConfig
+        from crpa.model import GPT
+
+        torch.manual_seed(0)
+        cfg = ModelConfig(n_embd=64, n_head=4, n_layer=2, block_size=256,
+                          vocab_size=1000, partition_size=64, n_relays=4,
+                          cross_k=4, dropout=0.0, attention_impl=impl)
+        return GPT(cfg, "crpa_contribution", seed=1).eval()
+
+    @pytest.mark.parametrize("impl", ["sparse_gather", "dense_masked"])
+    def test_nothing_is_captured_without_a_context(self, impl):
+        model = self._model(impl)
+        x = torch.randint(0, 1000, (1, 256))
+        with torch.no_grad(), model.frozen_structure():
+            model(x)
+        assert all(a is None for a in model.attention_probabilities())
+
+    def test_capture_context_enables_it_and_restores_after(self):
+        model = self._model("sparse_gather")
+        x = torch.randint(0, 1000, (1, 256))
+        with torch.no_grad(), model.frozen_structure():
+            with model.capture_probabilities(True):
+                model(x)
+                assert model.attention_probabilities()[0] is not None
+            model(x)
+            assert all(a is None for a in model.attention_probabilities())
+
+    def test_windowed_capture_never_materialises_the_dense_tensor(self):
+        model = self._model("sparse_gather")
+        x = torch.randint(0, 1000, (1, 256))
+        with torch.no_grad(), model.frozen_structure():
+            with model.capture_probabilities(True, window=(128, 256)):
+                model(x)
+                assert all(a is None for a in model.attention_probabilities())
+                sparse = model.sparse_attention_probabilities()[0]
+        assert sparse is not None
+        assert sparse.n_queries == 128
+        # One slot per permitted key, not one per sequence position.
+        assert sparse.key_idx.shape[1] < 256
+
+    def test_a_gated_variant_still_gets_rows_for_its_penalty(self):
+        """Turning capture off must not silently zero the redundancy loss."""
+        model = self._model("sparse_gather")
+        model.train()
+        for blk in model.blocks:
+            blk.attn.set_penalty_pairs([(200, 100), (201, 101)])
+        x = torch.randint(0, 1000, (1, 256))
+        _, loss = model(x, x, lambda_red=1.0)
+        assert loss is not None and torch.isfinite(loss)
+        # The penalty contributes, so the loss differs from the unweighted one.
+        _, plain = model(x, x, lambda_red=0.0)
+        assert not torch.allclose(loss, plain)

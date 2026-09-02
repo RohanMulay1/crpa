@@ -107,7 +107,11 @@ class CRPAAttention(nn.Module):
         self._step = 0
         self._frozen = False
         self._Alast: Optional[torch.Tensor] = None
-        self._capture_probs = True
+        # Capture is opt-in. Defaulting it on made every forward pass outside a
+        # capture context materialise a dense (B, H, T, T) tensor on the gather
+        # path - 3 GB at 8k and 12 GB at 16k with 12 heads - which is exactly
+        # what that path exists to avoid. Use GPT.capture_probabilities().
+        self._capture_probs = False
         self._last_intervened = 0
         # When set, attention probabilities are retained in their gathered
         # form for this query window instead of densely. Required above a few
@@ -224,9 +228,20 @@ class CRPAAttention(nn.Module):
         if use_gather:
             structure = self._get_structure(x, generator)
             self._sparse_probs = [] if self._probs_window is not None else None
+            # The redundancy penalty operates on attention rows, so a gated
+            # variant needs them during training whether or not a diagnostic
+            # asked for a capture.
+            needs_probs_for_loss = bool(
+                self.training
+                and self._penalty_pairs
+                and self.variant in ("crpa_naive", "crpa_contribution")
+            )
             out_h, probs, touched = sparse_gather_attention(
                 q, k, v, structure, dropout=dropout, edges=edges,
-                return_probs=self._capture_probs and self._probs_window is None,
+                return_probs=(
+                    (self._capture_probs and self._probs_window is None)
+                    or needs_probs_for_loss
+                ),
                 probs_window=self._probs_window,
                 sparse_probs_out=self._sparse_probs,
             )
