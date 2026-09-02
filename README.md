@@ -847,9 +847,11 @@ split it also calibrated against.
 Continuous integration runs on every push to `main` and `feat/**`, and on pull
 requests. See `.github/workflows/ci.yml`.
 
+177 tests: 130 on every push, 47 slow ones on pull requests.
+
 **Every push**, on Python 3.10 and 3.11: pyflakes, `compileall`, an assertion
 that both config profiles still instantiate at their advertised parameter
-counts (12.41M and 137.79M), the non-slow test suite, `python main.py` end to
+counts (12.41M and 137.79M), the 130 non-slow tests, `python main.py` end to
 end, figure regeneration, and a guard that fails the build if a checkpoint or a
 credential file is ever committed.
 
