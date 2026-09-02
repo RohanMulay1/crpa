@@ -15,7 +15,7 @@ import torch
 
 from crpa.config import ExperimentConfig
 from crpa.data import EVAL, Corpus
-from crpa.metrics import mean_pairwise_overlap
+from crpa.metrics import mean_pairwise_overlap, mean_pairwise_overlap_sparse
 from crpa.model import GPT
 
 
@@ -85,34 +85,48 @@ def measure_overlap(
     n_batches: int = 12,
     bs: int = 4,
     seed: int = 0,
+    window: Optional[int] = None,
 ) -> float:
     """Mean within-partition attention overlap - the *realized* overlap.
 
     This is the quantity the matched-overlap sweep matches on. Matching on the
     configured ``lambda_red`` instead would compare two different structural
     budgets and attribute the difference to the selection criterion.
+
+    Args:
+        window: retain attention for only this many trailing query rows, in
+            gathered form. Required above a few thousand tokens: a dense
+            capture is 12.9 GB per layer at T=16384 with 12 heads. Defaults to
+            the dense path, which is exact and fine at 512.
     """
     was_training = model.training
     model.eval()
     rng = np.random.default_rng(seed)
     values: List[float] = []
+    T = cfg.model.block_size
+    capture_window = (max(0, T - window), T) if window else None
     try:
-        with model.capture_probabilities(True):
+        with model.capture_probabilities(True, window=capture_window):
             for _ in range(n_batches):
-                x, _ = corpus.lm_batch(role, cfg.model.block_size, bs, device)
+                x, _ = corpus.lm_batch(role, T, bs, device)
                 model(x)
-                for probs in model.attention_probabilities():
-                    if probs is None:
-                        continue
-                    values.append(
-                        mean_pairwise_overlap(
+                if capture_window is None:
+                    for probs in model.attention_probabilities():
+                        if probs is None:
+                            continue
+                        values.append(mean_pairwise_overlap(
                             probs.mean(dim=(0, 1)),
-                            cfg.model.overlap_rho,
-                            cfg.model.partition_size,
-                            n_samples=8,
-                            rng=rng,
-                        )
-                    )
+                            cfg.model.overlap_rho, cfg.model.partition_size,
+                            n_samples=8, rng=rng,
+                        ))
+                else:
+                    for sparse in model.sparse_attention_probabilities():
+                        if sparse is None:
+                            continue
+                        values.append(mean_pairwise_overlap_sparse(
+                            sparse, cfg.model.overlap_rho,
+                            cfg.model.partition_size, n_samples=8, rng=rng,
+                        ))
     finally:
         if was_training:
             model.train()
@@ -196,9 +210,25 @@ def routing_diagnostics(
     }
 
 
+#: Above this context length, counting permitted edges by materialising the
+#: (T, T) mask costs more memory than the measurement is worth (4.3 GB of
+#: booleans at 65536), so the analytic upper bound is reported instead.
+MAX_EXACT_EDGE_COUNT_T = 8192
+
+
 def sparsity_report(model: GPT, block_size: int) -> Dict[str, float]:
     """Permitted attention entries versus the dense causal upper bound."""
     theoretical = block_size * (block_size + 1) // 2
+    if block_size > MAX_EXACT_EDGE_COUNT_T:
+        from crpa.kvcache import attention_edge_counts
+
+        bound = attention_edge_counts(model.cfg, block_size)
+        return {
+            "theoretical_causal_edges": theoretical,
+            "actual_edges": bound["crpa_edges_upper_bound"],
+            "sparsity_ratio": bound["sparsity_ratio_upper_bound"],
+            "edge_count_is_upper_bound": True,
+        }
     counts = []
     for blk in model.blocks:
         structure = blk.attn._structure
@@ -215,4 +245,5 @@ def sparsity_report(model: GPT, block_size: int) -> Dict[str, float]:
         "theoretical_causal_edges": theoretical,
         "actual_edges": actual,
         "sparsity_ratio": actual / theoretical,
+        "edge_count_is_upper_bound": False,
     }

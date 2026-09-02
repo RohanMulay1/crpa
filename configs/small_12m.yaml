@@ -56,5 +56,5 @@ data:
   needle_depth_range: [0.55, 0.73]   # one partition away; forces a relay hop
   needle_depths: [0.1, 0.3, 0.5, 0.7, 0.9]
   n_needles: 2
-  dataset_name: wikitext
+  dataset_name: Salesforce/wikitext
   dataset_config: wikitext-2-raw-v1

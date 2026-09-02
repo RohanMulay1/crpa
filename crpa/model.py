@@ -109,6 +109,11 @@ class CRPAAttention(nn.Module):
         self._Alast: Optional[torch.Tensor] = None
         self._capture_probs = True
         self._last_intervened = 0
+        # When set, attention probabilities are retained in their gathered
+        # form for this query window instead of densely. Required above a few
+        # thousand tokens: see crpa.attention.SparseProbs.
+        self._probs_window: Optional[Tuple[int, int]] = None
+        self._sparse_probs: Optional[List] = None
 
     # -- structure management ------------------------------------------------
     def freeze_structure(self, frozen: bool = True) -> None:
@@ -218,9 +223,12 @@ class CRPAAttention(nn.Module):
 
         if use_gather:
             structure = self._get_structure(x, generator)
+            self._sparse_probs = [] if self._probs_window is not None else None
             out_h, probs, touched = sparse_gather_attention(
                 q, k, v, structure, dropout=dropout, edges=edges,
-                return_probs=self._capture_probs,
+                return_probs=self._capture_probs and self._probs_window is None,
+                probs_window=self._probs_window,
+                sparse_probs_out=self._sparse_probs,
             )
         elif use_sdpa:
             p_drop = self.cfg.dropout if self.training else 0.0
@@ -381,24 +389,61 @@ class GPT(nn.Module):
                 blk.attn.freeze_structure(False)
 
     @contextlib.contextmanager
-    def capture_probabilities(self, enabled: bool = True) -> Iterator[None]:
+    def capture_probabilities(
+        self, enabled: bool = True, window: Optional[Tuple[int, int]] = None
+    ) -> Iterator[None]:
         """Toggle retention of attention probabilities.
 
-        Off by default at long context in the gather path, where materialising
-        ``(B, H, T, T)`` would undo the point of the sparse implementation.
+        Args:
+            enabled: whether to retain probabilities at all.
+            window: ``(lo, hi)`` query range to retain in *gathered* form.
+                Without it the capture is dense ``(B, H, T, T)``, which is
+                12.9 GB per layer at T=16384 with 12 heads and cannot be used
+                for long-context diagnostics. With it the cost is independent
+                of context length.
         """
-        previous = [blk.attn._capture_probs for blk in self.blocks]
+        previous = [(blk.attn._capture_probs, blk.attn._probs_window)
+                    for blk in self.blocks]
         for blk in self.blocks:
             blk.attn._capture_probs = enabled
+            blk.attn._probs_window = window if enabled else None
         try:
             yield
         finally:
-            for blk, prev in zip(self.blocks, previous):
-                blk.attn._capture_probs = prev
+            for blk, (prev_enabled, prev_window) in zip(self.blocks, previous):
+                blk.attn._capture_probs = prev_enabled
+                blk.attn._probs_window = prev_window
 
     def attention_probabilities(self) -> List[Optional[torch.Tensor]]:
-        """Per-layer attention from the most recent forward pass."""
+        """Per-layer dense attention from the most recent forward pass."""
         return [blk.attn._Alast for blk in self.blocks]
+
+    def sparse_attention_probabilities(self) -> List[Optional["object"]]:
+        """Per-layer gathered attention from the most recent windowed capture.
+
+        Each entry is a :class:`crpa.attention.SparseProbs`, or ``None`` if the
+        layer captured nothing.
+        """
+        out = []
+        for blk in self.blocks:
+            chunks = blk.attn._sparse_probs
+            if not chunks:
+                out.append(None)
+                continue
+            if len(chunks) == 1:
+                out.append(chunks[0])
+                continue
+            # A window spanning several query chunks: concatenate. The slot
+            # count C is the same for every chunk, so this is well defined.
+            from crpa.attention import SparseProbs
+
+            out.append(SparseProbs(
+                probs=torch.cat([c.probs for c in chunks], dim=2),
+                key_idx=torch.cat([c.key_idx for c in chunks], dim=0),
+                query_lo=chunks[0].query_lo,
+                is_relay=torch.cat([c.is_relay for c in chunks], dim=0),
+            ))
+        return out
 
     def intervened_count(self) -> int:
         """Total score positions removed by the most recent forward pass.

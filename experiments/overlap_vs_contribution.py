@@ -51,6 +51,7 @@ from crpa.intervention import (
     split_high_overlap_groups,
 )
 from crpa.metrics import correlations
+from crpa.attention import relay_positions
 from crpa.model import GPT
 from crpa.runmeta import write_csv, write_json
 from crpa.seeding import set_seed
@@ -91,6 +92,7 @@ def collect_candidates(
             model(x)
         probs = model.attention_probabilities()
         reach = None if legacy else reachable_queries(model, block)
+        relays = relay_positions(block, cfg.model.n_relays)
 
         pool: List[Candidate] = []
         for depth in range(len(model.blocks)):
@@ -108,6 +110,7 @@ def collect_candidates(
                     cfg.model.overlap_rho, n_per_layer, rng,
                     min_overlap=0.0,          # keep the full overlap range
                     reach=reach[depth] if reach else None,
+                    exclude_queries=relays,
                 )
         scored = score_candidates(
             model, pool, loss_fn, eps=cfg.contribution.eps,

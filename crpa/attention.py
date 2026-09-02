@@ -101,6 +101,41 @@ def _sample_cross_indices(
 
 
 @dataclass
+class SparseProbs:
+    """Attention probabilities kept in their gathered form.
+
+    A dense ``(B, H, T, T)`` capture is unusable at long context: at T=16384
+    with 12 heads that is 12.9 GB for a single layer, and 180 GB for a
+    14-layer model. But each non-relay query has at most
+    ``partition_size + n_relays + cross_k`` permitted keys - about 552 at the
+    medium profile - so the dense form is over 97% zeros.
+
+    Keeping the gathered form instead costs about 27 MB per layer for a
+    1024-query window, independent of context length.
+
+    Attributes:
+        probs: ``(B, H, n_q, C)`` probabilities over each query's key list.
+        key_idx: ``(n_q, C)`` absolute key index per slot; ``-1`` is unused.
+        query_lo: absolute position of local row 0.
+        is_relay: ``(n_q,)`` marks relay rows, whose true support spans every
+            causal key and is therefore not represented here.
+    """
+
+    probs: torch.Tensor
+    key_idx: torch.Tensor
+    query_lo: int
+    is_relay: torch.Tensor
+
+    @property
+    def n_queries(self) -> int:
+        return int(self.probs.shape[2])
+
+    def head(self, h: int) -> torch.Tensor:
+        """Batch-averaged probabilities for one head, ``(n_q, C)``."""
+        return self.probs[:, h].mean(dim=0)
+
+
+@dataclass
 class CRPAStructure:
     """The concrete sparsity pattern for one forward pass.
 
@@ -455,6 +490,8 @@ def sparse_gather_attention(
     edges: Sequence[Tuple[Optional[int], int, int]] = (),
     query_chunk: int = DEFAULT_QUERY_CHUNK,
     return_probs: bool = False,
+    probs_window: Optional[Tuple[int, int]] = None,
+    sparse_probs_out: Optional[List["SparseProbs"]] = None,
 ) -> Tuple[torch.Tensor, Optional[torch.Tensor], int]:
     """Attention evaluated only over Omega(i), chunked over query blocks.
 
@@ -466,7 +503,11 @@ def sparse_gather_attention(
 
     ``return_probs`` materialises the dense ``(B, H, T, T)`` probability tensor
     for overlap analysis. That defeats the memory saving, so it is opt-in and
-    only used at diagnostic context lengths.
+    only usable at short context.
+
+    ``probs_window=(lo, hi)`` instead collects :class:`SparseProbs` for those
+    query rows into ``sparse_probs_out``, which is what long-context
+    diagnostics use: it is independent of T and roughly 500x smaller.
     """
     B, H, T, d = q.shape
     p = structure.partition_size
@@ -626,6 +667,24 @@ def sparse_gather_attention(
                 3, scatter_idx.unsqueeze(0).unsqueeze(0).expand(B, H, n_q, key_idx.shape[1]),
                 contrib,
             )
+
+        if probs_window is not None and sparse_probs_out is not None:
+            w_lo, w_hi = probs_window
+            lo = max(q_lo, w_lo)
+            hi = min(q_hi, w_hi)
+            if lo < hi:
+                sl = slice(lo - q_lo, hi - q_lo)
+                rows = positions[lo:hi]
+                is_relay = (
+                    torch.isin(rows, relay) if g
+                    else torch.zeros(hi - lo, dtype=torch.bool, device=device)
+                )
+                sparse_probs_out.append(SparseProbs(
+                    probs=probs[:, :, sl, :].detach().clone(),
+                    key_idx=key_idx[sl].masked_fill(~valid[sl], -1).detach().clone(),
+                    query_lo=lo,
+                    is_relay=is_relay,
+                ))
 
     # Relay rows attend causally to everything; recompute and overwrite.
     if g:

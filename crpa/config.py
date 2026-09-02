@@ -198,7 +198,7 @@ class DataConfig:
     needle_depth_range: Tuple[float, float] = (0.55, 0.73)
     needle_depths: Tuple[float, ...] = (0.1, 0.3, 0.5, 0.7, 0.9)
     n_needles: int = 2
-    dataset_name: str = "wikitext"
+    dataset_name: str = "Salesforce/wikitext"
     dataset_config: str = "wikitext-2-raw-v1"
 
     @property

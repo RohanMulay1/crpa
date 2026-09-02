@@ -52,6 +52,7 @@ from crpa.intervention import (
     select_contribution_gated,
     select_naive,
 )
+from crpa.attention import relay_positions
 from crpa.model import GPT
 
 
@@ -132,6 +133,7 @@ def refresh_gate(
                 model(x)
             probs = model.attention_probabilities()
             reach = None if legacy else reachable_queries(model, block_size)
+            relays = relay_positions(block_size, cfg.model.n_relays)
 
             pool: List[Candidate] = []
             for depth in range(len(model.blocks)):
@@ -149,6 +151,7 @@ def refresh_gate(
                         cfg.model.overlap_rho, pool_size, rng,
                         min_overlap=cfg.contribution.overlap_threshold,
                         reach=reach[depth] if reach else None,
+                        exclude_queries=relays,
                     )
 
             if not pool:

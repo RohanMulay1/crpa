@@ -207,6 +207,7 @@ def sample_candidate_edges(
     min_overlap: float = 0.0,
     per_head: bool = True,
     reach: Optional[torch.Tensor] = None,
+    exclude_queries: Optional[Sequence[int]] = None,
 ) -> List[Candidate]:
     """Sample edges that are present in the mask and score their overlap.
 
@@ -223,6 +224,12 @@ def sample_candidate_edges(
         reach: optional ``(T,)`` mask of queries that can influence the loss;
             see :func:`reachable_queries`. Sampling directly from it is far
             more efficient than sampling everywhere and discarding.
+        exclude_queries: positions to drop from the overlap comparison.
+            Relay positions belong here: a relay attends causally to
+            everything, so its support overlaps every local query as an
+            artifact of the mask. Excluding them also makes this agree
+            exactly with the gathered-form computation, which cannot
+            represent a relay's support.
 
     Returns:
         Candidates sorted by descending structural overlap.
@@ -262,7 +269,8 @@ def sample_candidate_edges(
             if (i, j) in seen:
                 continue
             seen.add((i, j))
-            ov = edge_structural_overlap(support, i, j, partition_size)
+            ov = edge_structural_overlap(support, i, j, partition_size,
+                                         exclude=exclude_queries)
             if ov < min_overlap:
                 continue
             scored.append(Candidate(layer=layer, head=head, query=i, key=j, overlap=ov))
@@ -272,6 +280,74 @@ def sample_candidate_edges(
 
     out.sort(key=lambda c: -c.overlap)
     return out[:n_candidates] if not per_head else out
+
+
+def sample_candidate_edges_sparse(
+    sparse,
+    layer: int,
+    partition_size: int,
+    rho: float,
+    n_candidates: int,
+    rng: np.random.Generator,
+    min_overlap: float = 0.0,
+    reach: Optional[torch.Tensor] = None,
+) -> List[Candidate]:
+    """Sample candidate edges from gathered attention probabilities.
+
+    The long-context counterpart of :func:`sample_candidate_edges`. Identical
+    in definition; it just reads the representation that is affordable above a
+    few thousand tokens.
+
+    Relay rows are skipped: their true support spans every causal key, which
+    the gathered form does not represent, so their overlap is not computable
+    here and a wrong value would be worse than an omission.
+    """
+    from crpa.metrics import edge_structural_overlap_sparse, support_key_sets
+
+    if sparse is None or sparse.n_queries == 0:
+        return []
+
+    n_heads = int(sparse.probs.shape[1])
+    out: List[Candidate] = []
+    attempts = max(n_candidates * 8, 64)
+
+    for head in range(n_heads):
+        supports = support_key_sets(sparse.head(head), sparse.key_idx, rho)
+
+        eligible = [
+            local for local in range(sparse.n_queries)
+            if not bool(sparse.is_relay[local])
+            and supports[local]
+            and (reach is None or bool(reach[sparse.query_lo + local]))
+        ]
+        if not eligible:
+            continue
+
+        seen: set = set()
+        scored: List[Candidate] = []
+        for _ in range(attempts):
+            local = eligible[int(rng.integers(0, len(eligible)))]
+            absolute = sparse.query_lo + local
+            keys = sorted(k for k in supports[local] if k <= absolute)
+            if not keys:
+                continue
+            key = keys[int(rng.integers(0, len(keys)))]
+            if (absolute, key) in seen:
+                continue
+            seen.add((absolute, key))
+            overlap = edge_structural_overlap_sparse(
+                supports, sparse.query_lo, local, key, partition_size,
+                is_relay=sparse.is_relay,
+            )
+            if overlap < min_overlap:
+                continue
+            scored.append(Candidate(layer=layer, head=head, query=absolute,
+                                    key=key, overlap=overlap))
+        scored.sort(key=lambda c: -c.overlap)
+        out.extend(scored[:n_candidates])
+
+    out.sort(key=lambda c: -c.overlap)
+    return out
 
 
 def sample_legacy_row_pairs(

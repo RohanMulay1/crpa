@@ -37,7 +37,7 @@ from crpa.evaluate import measure_overlap, retrieval_accuracy, sparsity_report
 from crpa.intervention import (
     make_needle_loss_fn,
     reachable_queries,
-    sample_candidate_edges,
+    sample_candidate_edges_sparse,
     score_candidates,
     split_high_overlap_groups,
 )
@@ -70,6 +70,7 @@ def diagnose_at_length(
     n_candidates: int = 32,
     train_iters: Optional[int] = None,
     batch_size: int = 2,
+    probs_window: int = 1024,
 ) -> Dict[str, object]:
     """Run the overlap/contribution diagnostic at one context length."""
     run_cfg = cfg.replace(**{
@@ -88,22 +89,25 @@ def diagnose_at_length(
 
     model.eval()
     with model.frozen_structure():
-        # Probability capture is O(T^2) memory; only affordable at diagnostic
-        # sizes, which is why candidate counts here are modest.
-        with model.capture_probabilities(True):
+        # A dense capture is 12.9 GB per layer at T=16384 with 12 heads, and
+        # 180 GB across a 14-layer model, so the diagnostic retains
+        # probabilities in gathered form for a window of queries instead. The
+        # window sits at the end of the sequence, which is also where
+        # reachability concentrates under a last-token loss.
+        window_lo = max(0, context_length - probs_window)
+        with model.capture_probabilities(True, window=(window_lo, context_length)):
             model(x)
-        probs = model.attention_probabilities()
+        sparse = model.sparse_attention_probabilities()
         reach = reachable_queries(model, context_length)
         rng = np.random.default_rng(seed + 31337)
         pool = []
         for depth in range(len(model.blocks)):
-            if probs[depth] is None:
-                continue
-            pool += sample_candidate_edges(
-                probs[depth], depth, run_cfg.model.partition_size,
+            pool += sample_candidate_edges_sparse(
+                sparse[depth], depth, run_cfg.model.partition_size,
                 run_cfg.model.overlap_rho, n_candidates, rng,
                 reach=reach[depth],
             )
+        pool.sort(key=lambda c: -c.overlap)
         pool = pool[:n_candidates]
         scored = score_candidates(
             model, pool, loss_fn, eps=run_cfg.contribution.eps,
@@ -134,11 +138,13 @@ def diagnose_at_length(
     metrics: Dict[str, object] = {
         "context_length": context_length,
         "n_candidates_scored": len(scored),
+        "probs_window": probs_window,
         "retrieval_accuracy": retrieval_accuracy(
             model, corpus, context_length, device, n_batches=8, bs=batch_size
         ),
         "realized_overlap": measure_overlap(
-            model, corpus, run_cfg, device, n_batches=3, bs=1, seed=seed
+            model, corpus, run_cfg, device, n_batches=3, bs=1, seed=seed,
+            window=probs_window
         ),
         "delta_mean": float(np.mean(deltas)) if deltas else float("nan"),
         "delta_std": float(np.std(deltas)) if deltas else float("nan"),
@@ -173,6 +179,10 @@ def main(argv: List[str] | None = None) -> int:
                         help="training steps at each length; 0 diagnoses an "
                              "untrained model, which is stated in the results")
     parser.add_argument("--bench_batch_size", type=int, default=2)
+    parser.add_argument("--probs_window", type=int, default=1024,
+                        help="number of trailing query rows whose attention is "
+                             "retained for overlap analysis; cost is independent "
+                             "of context length")
     parser.add_argument("--variant", default="crpa_contribution")
     args = parser.parse_args(argv)
 
@@ -220,6 +230,7 @@ def main(argv: List[str] | None = None) -> int:
                     n_candidates=args.n_candidates,
                     train_iters=args.train_iters,
                     batch_size=args.bench_batch_size,
+                    probs_window=args.probs_window,
                 )
                 row = {"seed": seed, "status": record.status.value,
                        **{k: v for k, v in record.metrics.items()

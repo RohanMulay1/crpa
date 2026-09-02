@@ -41,6 +41,7 @@ from crpa.intervention import (
     sample_candidate_edges,
 )
 from crpa.metrics import spearman, top_k_agreement
+from crpa.attention import relay_positions
 from crpa.model import GPT
 from crpa.runmeta import write_csv, write_json
 from crpa.seeding import set_seed
@@ -177,6 +178,7 @@ def main(argv: List[str] | None = None) -> int:
                     model(x)
                 probs = model.attention_probabilities()
                 reach = reachable_queries(model, block)
+                relays = relay_positions(block, cfg.model.n_relays)
                 rng = np.random.default_rng(seed + 909)
                 candidates: List[Candidate] = []
                 for depth in range(len(model.blocks)):
@@ -185,7 +187,7 @@ def main(argv: List[str] | None = None) -> int:
                     candidates += sample_candidate_edges(
                         probs[depth], depth, run_cfg.model.partition_size,
                         run_cfg.model.overlap_rho, args.n_candidates, rng,
-                        reach=reach[depth],
+                        reach=reach[depth], exclude_queries=relays,
                     )
                 candidates = candidates[: args.n_candidates]
 

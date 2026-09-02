@@ -144,3 +144,104 @@ class TestSparsity:
         # The structural helper may be a superset within a partition window; it
         # must never be a subset, or reachability would miss real paths.
         assert bool((expected & ~got).sum() == 0), "attended_mask missed reachable keys"
+
+
+class TestSparseProbabilityCapture:
+    """Gathered probability capture, which is what makes Tier 2 possible.
+
+    A dense capture is 12.9 GB per layer at T=16384 with 12 heads, and 180 GB
+    across a 14-layer model. The gathered form costs about 27 MB per layer for
+    a 1024-query window, independent of context length.
+    """
+
+    def _model(self):
+        from crpa.config import ModelConfig
+        from crpa.model import GPT
+
+        torch.manual_seed(0)
+        cfg = ModelConfig(n_embd=64, n_head=4, n_layer=2, block_size=256,
+                          vocab_size=1000, partition_size=64, n_relays=4,
+                          cross_k=4, dropout=0.0, attention_impl="sparse_gather")
+        model = GPT(cfg, "crpa_contribution", seed=3)
+        model.eval()
+        return model, cfg
+
+    def _both_captures(self):
+        model, cfg = self._model()
+        x = torch.randint(0, 1000, (2, 256))
+        with torch.no_grad(), model.frozen_structure():
+            with model.capture_probabilities(True):
+                model(x)
+            dense = model.attention_probabilities()
+            with model.capture_probabilities(True, window=(128, 256)):
+                model(x)
+            sparse = model.sparse_attention_probabilities()
+        return dense, sparse, cfg
+
+    def test_window_shape_and_offset(self):
+        _, sparse, cfg = self._both_captures()
+        sp = sparse[0]
+        assert sp.query_lo == 128
+        assert sp.n_queries == 128
+        # One slot per permitted key, not one per position in the sequence.
+        assert sp.key_idx.shape[1] == cfg.partition_size + cfg.n_relays + cfg.cross_k
+        assert sp.key_idx.shape[1] < 256
+
+    def test_support_sets_match_the_dense_capture(self):
+        from crpa.metrics import support_key_sets, top_p_support_mask
+
+        dense, sparse, _ = self._both_captures()
+        sp = sparse[0]
+        A = dense[0][:, 1].mean(dim=0)
+        dense_support = top_p_support_mask(A, 0.6)
+        sparse_support = support_key_sets(sp.head(1), sp.key_idx, 0.6)
+
+        for local in range(sp.n_queries):
+            if bool(sp.is_relay[local]):
+                continue    # a relay's true support is not representable here
+            q = sp.query_lo + local
+            expected = set(dense_support[q].nonzero(as_tuple=True)[0].tolist())
+            assert sparse_support[local] == expected, "support differs at query {}".format(q)
+
+    def test_overlap_statistic_matches_the_dense_computation(self):
+        """The two representations must yield the same structural overlap."""
+        from crpa.attention import relay_positions
+        from crpa.metrics import (
+            edge_structural_overlap,
+            edge_structural_overlap_sparse,
+            support_key_sets,
+            top_p_support_mask,
+        )
+
+        dense, sparse, cfg = self._both_captures()
+        relays = relay_positions(256, cfg.n_relays)
+        checked = 0
+        for layer in range(2):
+            sp = sparse[layer]
+            for head in range(4):
+                A = dense[layer][:, head].mean(dim=0)
+                dsup = top_p_support_mask(A, 0.6)
+                ssup = support_key_sets(sp.head(head), sp.key_idx, 0.6)
+                for local in range(0, sp.n_queries, 5):
+                    q = sp.query_lo + local
+                    if bool(sp.is_relay[local]) or not ssup[local]:
+                        continue
+                    for key in sorted(k for k in ssup[local] if k <= q)[:2]:
+                        a = edge_structural_overlap(
+                            dsup, q, key, cfg.partition_size, exclude=relays)
+                        b = edge_structural_overlap_sparse(
+                            ssup, sp.query_lo, local, key, cfg.partition_size,
+                            is_relay=sp.is_relay)
+                        assert a == pytest.approx(b, abs=1e-6)
+                        checked += 1
+        assert checked > 50, "test exercised too few edges to be meaningful"
+
+    def test_relay_rows_are_flagged(self):
+        from crpa.attention import relay_positions
+
+        _, sparse, cfg = self._both_captures()
+        sp = sparse[0]
+        expected = {r for r in relay_positions(256, cfg.n_relays)
+                    if sp.query_lo <= r < sp.query_lo + sp.n_queries}
+        flagged = {sp.query_lo + i for i in range(sp.n_queries) if bool(sp.is_relay[i])}
+        assert flagged == expected

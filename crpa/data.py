@@ -47,6 +47,14 @@ _STREAM_OFFSET = {TRAIN: 0, CALIBRATION: 1, EVAL: 2}
 #: WikiText split backing each role.
 _LM_SOURCE = {TRAIN: "train", CALIBRATION: "validation", EVAL: "test"}
 
+#: Known alternative repository ids. Hugging Face moved several canonical
+#: datasets under an organisation namespace, and newer huggingface_hub
+#: refuses a bare name outright.
+DATASET_ALIASES = {
+    "wikitext": ("Salesforce/wikitext", "EleutherAI/wikitext_document_level"),
+    "Salesforce/wikitext": ("wikitext",),
+}
+
 
 class DataNotInitialised(RuntimeError):
     """Raised when a batch is requested before :meth:`Corpus.load`."""
@@ -202,6 +210,7 @@ class Corpus:
         self.seed = seed
         self.tokenizer = None
         self.vocab_size: Optional[int] = None
+        self.resolved_dataset_name: Optional[str] = None
         self._lm: Dict[str, torch.Tensor] = {}
         self.needles: Dict[str, NeedleGenerator] = {
             role: NeedleGenerator(cfg, role, seed) for role in SPLITS
@@ -228,9 +237,31 @@ class Corpus:
         self.tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
         self.vocab_size = self.tokenizer.vocab_size
 
-        if verbose:
-            print("Loading {}/{}...".format(self.cfg.dataset_name, self.cfg.dataset_config))
-        ds = load_dataset(self.cfg.dataset_name, self.cfg.dataset_config)
+        # Newer huggingface_hub requires a namespaced repo id, so the bare
+        # "wikitext" that the original used now raises. Try the configured name
+        # first, then known aliases, and report which one resolved.
+        candidates = [self.cfg.dataset_name] + [
+            alias for alias in DATASET_ALIASES.get(self.cfg.dataset_name, ())
+            if alias != self.cfg.dataset_name
+        ]
+        ds = None
+        errors = []
+        for name in candidates:
+            if verbose:
+                print("Loading {}/{}...".format(name, self.cfg.dataset_config))
+            try:
+                ds = load_dataset(name, self.cfg.dataset_config)
+                self.resolved_dataset_name = name
+                break
+            except Exception as exc:  # noqa: BLE001 - re-raised below if all fail
+                errors.append("{}: {}".format(name, type(exc).__name__))
+        if ds is None:
+            raise RuntimeError(
+                "could not load dataset {!r} (config {!r}). Tried: {}. "
+                "Pass a namespaced id via DataConfig.dataset_name.".format(
+                    self.cfg.dataset_name, self.cfg.dataset_config, "; ".join(errors)
+                )
+            )
 
         def tok(split_name: str) -> torch.Tensor:
             raw = "\n".join(ds[split_name]["text"])
