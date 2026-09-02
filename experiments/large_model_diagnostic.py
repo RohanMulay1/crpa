@@ -254,14 +254,25 @@ def verify_instrumentation(model, probe: AttentionProbe, x: torch.Tensor) -> Dic
         )
 
     T = A.shape[-1]
-    q = T - 1
+    # Not T - 1. A causal language-model loss compares logits[..., :-1, :] with
+    # labels[..., 1:], so the final position's logits are discarded and an
+    # intervention there cannot move the loss no matter how much attention mass
+    # it removes. Verifying on that position would confirm the edit and prove
+    # nothing about measurability.
+    q = T - 2
     head = 0
     k = int(A[0, head, q, :q + 1].argmax().item())
     before = float(A[0, head, q, k].item())
 
+    base_out = model(x, labels=x)
+    baseline_loss = float(base_out.loss.item())
+    baseline_logits = base_out.logits.detach().clone()
+
     probe.reset()
     probe.edges = [(head, q, k)]
-    model(x)
+    out = model(x, labels=x)
+    intervened_loss = float(out.loss.item())
+    logit_shift = float((out.logits - baseline_logits).abs().max().item())
     after = float(probe.captured[0, head, q, k].item())
     after_row_sum = float(probe.captured[0, head, q].sum().item())
     removed = probe.n_intervened
@@ -276,12 +287,37 @@ def verify_instrumentation(model, probe: AttentionProbe, x: torch.Tensor) -> Dic
         raise InstrumentationError(
             "row failed to renormalise after intervention: sum={:.6f}".format(after_row_sum)
         )
+    # Two separate properties, and conflating them causes false alarms.
+    #
+    # Correctness: the edit must reach the objective's inputs. If the logits do
+    # not move at all, the intervention is not connected to the output and
+    # nothing downstream means anything.
+    if logit_shift == 0.0:
+        raise InstrumentationError(
+            "removing the largest attention weight at query {} left the logits "
+            "bit-identical. The edit reached the probabilities but not the "
+            "output, so any delta measured this way would be structurally zero "
+            "rather than small.".format(q)
+        )
+
+    # Resolvability: whether the loss can *represent* that change is a
+    # different question, and a real limit rather than a bug. A model with a
+    # tiny hidden state, or a long sequence averaging the effect away, can
+    # propagate the edit correctly while the loss stays bit-identical because
+    # the shift falls below one float ULP.
+    loss_resolves = intervened_loss != baseline_loss
     return {
         "verified": True,
         "probe_layer": probe.layer_idx,
+        "probe_query": q,
         "edge_prob_before": before,
         "edge_prob_after": after,
         "row_sum_after": after_row_sum,
+        "baseline_loss": baseline_loss,
+        "intervened_loss": intervened_loss,
+        "loss_delta": intervened_loss - baseline_loss,
+        "max_logit_shift": logit_shift,
+        "loss_resolves_intervention": loss_resolves,
         "n_edits_applied": removed,
         "attention_shape": list(A.shape),
     }
@@ -317,7 +353,10 @@ def run_layer(
         picks: List[Tuple[int, int, int, float]] = []
         for _ in range(n_candidates * 8):
             h = int(rng.integers(0, H))
-            i = int(rng.integers(max(T // 2, 1), T))   # later half: real context
+            # Later half for real context, but never T - 1: the shifted causal
+            # loss discards that position's logits, so its delta is zero by
+            # construction rather than by measurement.
+            i = int(rng.integers(max(T // 2, 1), max(T - 1, 2)))
             row = supports[h][i].nonzero(as_tuple=True)[0]
             row = row[row <= i]
             if row.numel() == 0:
@@ -431,6 +470,12 @@ def main(argv: List[str] | None = None) -> int:
             args.rho, args.n_candidates, rng,
         )
         verifications["layer_{}".format(layer_idx)] = verification
+        if not verification.get("loss_resolves_intervention", True):
+            print("  layer {:<3} warning: the edit propagates (logits move by "
+                  "{:.2e}) but the loss is bit-identical. Deltas from this "
+                  "model are below float resolution and are not "
+                  "measurements.".format(
+                      layer_idx, verification.get("max_logit_shift", float("nan"))))
         all_rows.extend(rows)
         deltas = [r["delta_loss"] for r in rows]
         print("  layer {:<3} scored {:>3} edges | delta mean={:+.3e} max={:+.3e}".format(
