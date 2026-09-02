@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "feat/**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: tests (python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.11"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          # CPU wheels: the suite needs no GPU and this keeps the job small.
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install numpy scipy matplotlib PyYAML pytest pyflakes
+
+      - name: Lint
+        run: python -m pyflakes crpa experiments tests *.py
+
+      - name: Compile
+        run: python -m compileall -q crpa experiments tests *.py
+
+      - name: Config profiles load and match their advertised sizes
+        run: |
+          python - <<'PY'
+          from crpa.config import load_profile
+          small = load_profile("small_12m").model
+          medium = load_profile("medium_138m").model
+          assert abs(small.n_params() / 1e6 - 12.4) < 0.1, small.n_params()
+          assert abs(medium.n_params() / 1e6 - 138) < 1.0, medium.n_params()
+          assert medium.position == "rope"
+          print("small %.2fM, medium %.2fM" % (small.n_params() / 1e6,
+                                               medium.n_params() / 1e6))
+          PY
+
+      - name: Unit tests
+        run: python -m pytest tests/ -q -m "not slow" --durations=10
+
+      - name: Legacy entry point still runs
+        run: |
+          python main.py --max_iters 6 --block_size 64 --skip_multiseed \
+            --synthetic_data --results_dir results/ci
+
+      - name: Figures regenerate from result files
+        run: python -m experiments.plot_all --results_dir results/ci || true
+
+      - name: No checkpoints or credentials staged
+        run: |
+          set -e
+          if git ls-files | grep -E '\.(pt|pth|safetensors|bin)$'; then
+            echo "checkpoint committed"; exit 1
+          fi
+          if git ls-files | grep -Ei '(^|/)\.env|runpod_key|id_rsa|id_ed25519'; then
+            echo "credential file committed"; exit 1
+          fi
+          echo "clean"
+
+  slow:
+    name: slow tests (HF models, long context)
+    runs-on: ubuntu-latest
+    # These download small models and build dense references at 8192, so they
+    # are kept off the per-push path and run on demand and on PRs.
+    if: github.event_name != 'push'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install numpy scipy matplotlib PyYAML pytest transformers
+      - name: Tier 2 long-context correctness
+        run: python -m pytest tests/test_tier2_long_context.py -q -m slow
+      - name: Tier 3 instrumentation across architectures
+        run: python -m pytest tests/test_tier3_instrumentation.py -q -m slow

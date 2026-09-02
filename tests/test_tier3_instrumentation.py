@@ -25,7 +25,6 @@ scale. Section "What was not run" in the README says so.
 
 from __future__ import annotations
 
-import math
 
 import pytest
 import torch
