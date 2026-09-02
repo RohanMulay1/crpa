@@ -117,6 +117,24 @@ def find_matched_overlap_pairs(
                 float(best.get("retrieval_accuracy", float("nan")))
                 - float(a.get("retrieval_accuracy", float("nan")))
             ),
+            # Retrieval is the outcome the claim is about, but it has no power
+            # when both methods sit at the chance rate. Held-out language-model
+            # loss is carried alongside so the comparison still has an outcome
+            # that can move.
+            "{}_eval_loss".format(method_a): a.get("eval_loss"),
+            "{}_eval_loss".format(method_b): best.get("eval_loss"),
+            "eval_loss_delta": (
+                float(best.get("eval_loss", float("nan")))
+                - float(a.get("eval_loss", float("nan")))
+            ),
+            "{}_above_chance".format(method_a): (
+                float(a.get("retrieval_accuracy", 0.0))
+                > float(a.get("chance_accuracy", 5.0))
+            ),
+            "{}_above_chance".format(method_b): (
+                float(best.get("retrieval_accuracy", 0.0))
+                > float(best.get("chance_accuracy", 5.0))
+            ),
             "{}_lambda_red".format(method_a): a.get("lambda_red"),
             "{}_lambda_red".format(method_b): best.get("lambda_red"),
             "{}_removal_budget".format(method_a): a.get("removal_budget"),
@@ -290,13 +308,22 @@ def main(argv: List[str] | None = None) -> int:
         print("No pairs within tolerance. Widen --tolerance or extend --lambdas;")
         print("reporting an unmatched comparison would defeat the experiment.")
     else:
-        print("{:<6} {:>9} {:>9} {:>8} {:>10} {:>10} {:>9}".format(
-            "seed", "naive_ov", "contr_ov", "|diff|", "naive_ret", "contr_ret", "delta"))
+        print("{:<6} {:>9} {:>9} {:>8} {:>10} {:>10} {:>9} {:>11}".format(
+            "seed", "naive_ov", "contr_ov", "|diff|", "naive_ret", "contr_ret",
+            "d_ret", "d_evalloss"))
+        any_above = False
         for p in payload["matched_pairs"]:
-            print("{:<6} {:>9.4f} {:>9.4f} {:>8.4f} {:>9.1f}% {:>9.1f}% {:>+8.1f}".format(
-                p["seed"], p["crpa_naive_overlap"], p["crpa_contribution_overlap"],
-                p["overlap_abs_diff"], p["crpa_naive_retrieval"],
-                p["crpa_contribution_retrieval"], p["retrieval_delta"]))
+            any_above = any_above or p.get("crpa_naive_above_chance") or                 p.get("crpa_contribution_above_chance")
+            print("{:<6} {:>9.4f} {:>9.4f} {:>8.4f} {:>9.1f}% {:>9.1f}% "
+                  "{:>+8.1f} {:>+11.4f}".format(
+                      p["seed"], p["crpa_naive_overlap"],
+                      p["crpa_contribution_overlap"], p["overlap_abs_diff"],
+                      p["crpa_naive_retrieval"], p["crpa_contribution_retrieval"],
+                      p["retrieval_delta"], p.get("eval_loss_delta", float("nan"))))
+        if not any_above:
+            print("\nNo run in any matched pair exceeded chance retrieval, so "
+                  "the retrieval\ncomparison has no power here. Read "
+                  "d_evalloss instead.")
     print("\nWrote {}".format(results_dir))
     return 0
 
