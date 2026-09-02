@@ -263,7 +263,10 @@ def sample_candidate_edges(
             # removable and would bias the sample.
             row = support[i].nonzero(as_tuple=True)[0]
             row = row[row <= i]
-            if row.numel() == 0:
+            # A query with a single permitted key (position 0 always has one)
+            # cannot be intervened on: removing it would empty the row rather
+            # than remove one interaction.
+            if row.numel() < 2:
                 continue
             j = int(row[int(rng.integers(0, row.numel()))])
             if (i, j) in seen:
@@ -329,7 +332,7 @@ def sample_candidate_edges_sparse(
             local = eligible[int(rng.integers(0, len(eligible)))]
             absolute = sparse.query_lo + local
             keys = sorted(k for k in supports[local] if k <= absolute)
-            if not keys:
+            if len(keys) < 2:
                 continue
             key = keys[int(rng.integers(0, len(keys)))]
             if (absolute, key) in seen:

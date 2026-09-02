@@ -12,6 +12,8 @@ from __future__ import annotations
 import pytest
 import torch
 
+import numpy as np
+
 from crpa.attention import build_crpa_structure, dense_masked_attention, sparse_gather_attention
 from crpa.intervention import (
     Candidate,
@@ -22,6 +24,7 @@ from crpa.intervention import (
     measure_delta,
     reachable_queries,
     score_candidates,
+    sample_candidate_edges,
     select_contribution_gated,
     select_naive,
     split_high_overlap_groups,
@@ -219,3 +222,45 @@ class TestPlan:
         assert len(plan.for_layer(0)) == 2
         assert plan.for_layer(1) == []
         assert plan.for_layer(2) == [(None, 11, 6)]
+
+
+class TestRowEmptying:
+    """An intervention must remove an interaction, never a whole query.
+
+    Position 0 has exactly one permitted key: itself. Removing it leaves the
+    row with nothing to attend to, so softmax produces NaN. This surfaced only
+    on the full-scale GPU run, where the candidate sampler eventually proposed
+    that edge.
+    """
+
+    def test_removing_a_rows_last_key_is_refused(self):
+        structure = _structure(T=64, p=16, g=2, k=2)
+        mask = structure.dense_mask()
+        assert int(mask[0].sum()) == 1, "query 0 should have exactly one key"
+
+        torch.manual_seed(0)
+        q, k, v = (torch.randn(1, 2, 64, 8) for _ in range(3))
+        out, probs, touched = dense_masked_attention(
+            q, k, v, mask, edges=[(0, 0, 0)]
+        )
+        assert touched == 0, "the last remaining key was removed"
+        assert not torch.isnan(probs).any()
+        assert float(probs[0, 0, 0].sum()) == pytest.approx(1.0, abs=1e-6)
+
+    def test_sampler_never_proposes_such_an_edge(self, tiny_model, needle_batch):
+        x, _ = needle_batch
+        rng = np.random.default_rng(0)
+        with tiny_model.frozen_structure():
+            with tiny_model.capture_probabilities(True):
+                tiny_model(x)
+            probs = tiny_model.attention_probabilities()
+            structures = tiny_model.structures()
+            for depth, layer_probs in enumerate(probs):
+                candidates = sample_candidate_edges(
+                    layer_probs, depth, 16, 0.6, 20, rng
+                )
+                for cand in candidates:
+                    allowed = structures[depth].allowed_keys(cand.query)
+                    assert allowed.numel() >= 2, (
+                        "sampled query {} has only one permitted key".format(cand.query)
+                    )

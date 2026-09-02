@@ -429,15 +429,26 @@ def _apply_edge_interventions(
             slots = (key_index[local_q] == k).nonzero(as_tuple=True)[0].tolist()
         for slot in slots:
             if head is None:
-                # (B, H) -> a head counts once if any batch element was live.
-                live_heads = torch.isfinite(scores[:, :, local_q, slot]).any(dim=0)
-                n_live = int(live_heads.sum().item())
+                live_here = torch.isfinite(scores[:, :, local_q, slot]).any(dim=0)
+                # Never remove a row's last permitted key: the row would
+                # softmax to NaN, and the "intervention" would be a deletion of
+                # the query rather than of one interaction.
+                row_live = torch.isfinite(scores[:, :, local_q, :]).sum(dim=-1)
+                safe = live_here & (row_live > 1).all(dim=0)
+                n_live = int(safe.sum().item())
                 if n_live == 0:
                     continue
-                scores[:, :, local_q, slot] = NEG_INF
+                scores[:, safe, local_q, slot] = NEG_INF
                 touched += n_live
             else:
                 if not bool(torch.isfinite(scores[:, head, local_q, slot]).any()):
+                    continue
+                row_live = torch.isfinite(scores[:, head, local_q, :]).sum(dim=-1)
+                if not bool((row_live > 1).all()):
+                    # Query has exactly one permitted key (position 0 always
+                    # does). Removing it is not a measurable intervention, so
+                    # it is skipped and not counted, and the caller refuses to
+                    # report a delta.
                     continue
                 scores[:, head, local_q, slot] = NEG_INF
                 touched += 1
