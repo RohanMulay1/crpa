@@ -577,6 +577,14 @@ was built with a Python loop over tokens.
 
 No, and the reason is arithmetic rather than anything about attention.
 
+**These runs used untrained models** (`--train_iters 0`). Training a 137.8M
+model at 16k was outside the compute budget for this work. A trained model has
+peakier attention and would produce larger deltas, so the precision floor
+reported below is a lower bound on the problem, not a measurement of it on a
+converged model. Treat this section as establishing that the arithmetic fails
+at this scale, not as the final word on whether the diagnostic could work at
+138M.
+
 At the 138M profile, single-edge interventions produce loss changes at or below
 what float32 can represent. At 4096 the distribution is mean -4.0e-08 with
 sd 1.9e-07; at 8192 every single-edge delta is exactly 0.0.

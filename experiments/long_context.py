@@ -289,7 +289,18 @@ def main(argv: List[str] | None = None) -> int:
     for seed in seeds:
         corpus = base_corpus.reseed(seed)
         for length in lengths:
-            run_cfg = cfg.replace(**{"model.block_size": length, "train.seed": seed})
+            # Must match what diagnose_at_length actually runs, including
+            # train_iters. Building it differently here meant the record said
+            # max_iters=2000 while the run used --train_iters 0, so the stored
+            # provenance did not describe the executed run.
+            run_cfg = cfg.replace(**{
+                "model.block_size": length,
+                "train.seed": seed,
+                "train.max_iters": (
+                    args.train_iters if args.train_iters is not None
+                    else cfg.train.max_iters
+                ),
+            })
             rid = make_run_id(run_cfg, seed, EXPERIMENT)
             record = RunRecord(
                 run_id=rid, experiment=EXPERIMENT, status=status,

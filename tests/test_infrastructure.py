@@ -336,3 +336,45 @@ class TestEpsCalibration:
 
         out = eps_calibration([], eps=0.03)
         assert out["n"] == 0 and out["vacuous"] is None
+
+
+class TestRecordedConfigMatchesTheRun:
+    """A run record must describe the run that actually happened.
+
+    Tier 2 recorded train.max_iters=2000 while the runs used --train_iters 0,
+    because the record's config was built separately from the one the
+    experiment executed. Provenance that does not match execution is worse than
+    no provenance, since it is trusted.
+    """
+
+    def test_train_iters_override_reaches_the_recorded_config(self):
+        import argparse
+
+        from experiments.common import config_from_args
+
+        args = argparse.Namespace(
+            profile="small_12m", smoke=False, max_iters=None, block_size=None,
+            intervention_mode=None, attention_impl=None,
+            legacy_needle_position=False,
+        )
+        cfg = config_from_args(args)
+
+        # This mirrors what experiments.long_context.main now builds.
+        for train_iters in (0, 50):
+            run_cfg = cfg.replace(**{
+                "model.block_size": 4096,
+                "train.seed": 42,
+                "train.max_iters": train_iters,
+            })
+            assert run_cfg.train.max_iters == train_iters
+            # And the same value is what canonical_json hashes into the run id,
+            # so two different training budgets cannot collide.
+            assert str(train_iters) in run_cfg.canonical_json()
+
+    def test_differing_train_iters_give_different_run_ids(self):
+        from crpa.config import ExperimentConfig
+        from crpa.runmeta import run_id
+
+        a = ExperimentConfig().replace(**{"train.max_iters": 0})
+        b = ExperimentConfig().replace(**{"train.max_iters": 2000})
+        assert run_id(a.canonical_json(), 42) != run_id(b.canonical_json(), 42)
