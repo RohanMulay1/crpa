@@ -1,0 +1,214 @@
+{
+  "run_id": "9b522b38b6a6",
+  "experiment": "tier1_multiseed",
+  "status": "completed",
+  "config": {
+    "model": {
+      "n_embd": 192,
+      "n_head": 8,
+      "n_layer": 6,
+      "dropout": 0.1,
+      "vocab_size": 50257,
+      "block_size": 512,
+      "position": "learned",
+      "partition_size": 128,
+      "n_relays": 4,
+      "cross_k": 4,
+      "route_temp": 0.7,
+      "overlap_rho": 0.6,
+      "attention_impl": "dense_masked"
+    },
+    "train": {
+      "batch_size": 16,
+      "max_iters": 4000,
+      "eval_iters": 20,
+      "eval_interval": 400,
+      "lr": 0.0003,
+      "weight_decay": 0.1,
+      "grad_clip": 1.0,
+      "warmup_steps": 200,
+      "ret_ratio": 0.9,
+      "lambda_bal": 0.01,
+      "lambda_red": 0.05,
+      "seed": 1337,
+      "checkpoint_every": 1000
+    },
+    "contribution": {
+      "eps": 0.03,
+      "interval": 200,
+      "n_pairs": 8,
+      "warmup_steps": 600,
+      "mode": "edge",
+      "overlap_threshold": 0.2,
+      "n_samples": 8,
+      "high_overlap_q": 0.75,
+      "low_contribution_q": 0.25,
+      "high_contribution_q": 0.75
+    },
+    "data": {
+      "filler_range": [
+        2000,
+        9999
+      ],
+      "key_range": [
+        100,
+        119
+      ],
+      "val_range": [
+        120,
+        139
+      ],
+      "needle_depth_range": [
+        0.55,
+        0.73
+      ],
+      "needle_depths": [
+        0.1,
+        0.3,
+        0.5,
+        0.7,
+        0.9
+      ],
+      "n_needles": 2,
+      "query_key_at_end": true,
+      "dataset_name": "Salesforce/wikitext",
+      "dataset_config": "wikitext-2-raw-v1"
+    },
+    "variant": "sliding",
+    "profile": "small_12m",
+    "multi_seeds": [
+      42,
+      1337,
+      2024
+    ],
+    "scale_lens": [
+      64,
+      128,
+      256,
+      512
+    ]
+  },
+  "metrics": {
+    "calibration_loss": 6.810933589935303,
+    "calibration_ppl": 907.7178477384141,
+    "eval_loss": 6.770587348937989,
+    "eval_ppl": 871.8238084278488,
+    "retrieval_accuracy": 50.416666666666664,
+    "chance_accuracy": 5.0,
+    "above_chance": true,
+    "realized_overlap": 0.3389559257775545,
+    "n_params": 12412608,
+    "n_gate_refreshes": 0,
+    "gate_pool_size": null,
+    "gate_selected": null,
+    "gate_criterion": null,
+    "gate_mean_selected_overlap": null,
+    "contribution_delta_mean": null,
+    "contribution_frac_below_eps": null,
+    "val_hist": [
+      10.85057258605957,
+      7.574674129486084,
+      7.4556989669799805,
+      7.287400722503662,
+      7.100914001464844,
+      7.045483589172363,
+      6.943800449371338,
+      6.870142936706543,
+      6.874128818511963,
+      6.855433464050293,
+      6.810933589935303
+    ],
+    "step_hist": [
+      0,
+      400,
+      800,
+      1200,
+      1600,
+      2000,
+      2400,
+      2800,
+      3200,
+      3600,
+      3999
+    ],
+    "theoretical_causal_edges": 131328,
+    "actual_edges": NaN,
+    "sparsity_ratio": NaN
+  },
+  "seed": 1337,
+  "context_length": 512,
+  "dtype": "torch.float32",
+  "variant": "sliding",
+  "splits": {
+    "train": {
+      "role": "train",
+      "lm_source": "train",
+      "n_tokens": 2403644,
+      "needle_stream_seed": 1337000,
+      "sample_hashes": [
+        "bbf3384305e474d5",
+        "a3dcb5a957ca582b",
+        "b2c8ba1a6e3c5cd2",
+        "a6315ea8533d271f",
+        "c0da7a78e5c33d55",
+        "3c20c364d812d795",
+        "3e7f53d4b6b4222e",
+        "adacd86d90e02b7c"
+      ]
+    },
+    "calibration": {
+      "role": "calibration",
+      "lm_source": "validation",
+      "n_tokens": 248461,
+      "needle_stream_seed": 1337001,
+      "sample_hashes": [
+        "5ab1e63b65d0aba0",
+        "35cba270449f7d33",
+        "ff6e22e24fe6a538",
+        "d8e41080bd05901e",
+        "0aaa76541d172dbe",
+        "a918d2f55089f9ab",
+        "774cb20f0f56e0ff",
+        "6131db0cbf81622f"
+      ]
+    },
+    "evaluation": {
+      "role": "evaluation",
+      "lm_source": "test",
+      "n_tokens": 284614,
+      "needle_stream_seed": 1337002,
+      "sample_hashes": [
+        "5195c6e8fd5207fa",
+        "b3f328efeaacf16d",
+        "3f6c61fa7c568019",
+        "01afba5358d89655",
+        "0bfad18b3ce813b8",
+        "203b406cc8fd49b9",
+        "d9a11337ea5a59f3",
+        "428a852f9bb679e4"
+      ]
+    }
+  },
+  "notes": "",
+  "error": null,
+  "duration_s": 213.5965359210968,
+  "timestamp": "2026-09-02T12:50:52+0000",
+  "git_sha": "eef9ca465331331702b8b7c44849d1b7f4777d62",
+  "git_dirty": true,
+  "env": {
+    "hostname": "72f9ce18025a",
+    "platform": "Linux-6.8.0-106-generic-x86_64-with-glibc2.35",
+    "python": "3.11.10",
+    "torch": "2.4.1+cu124",
+    "cuda": "12.4",
+    "cudnn": 90100,
+    "gpu": {
+      "available": true,
+      "name": "NVIDIA L40S",
+      "count": 1,
+      "total_memory_gb": 47.67,
+      "capability": "8.9"
+    },
+    "cpu_count": 128
+  }
+}
