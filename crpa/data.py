@@ -195,6 +195,52 @@ class NeedleGenerator:
             torch.tensor(targets, dtype=torch.long, device=device),
         )
 
+    def measure_chance_floor(
+        self, block_size: int, n: int = 5000
+    ) -> Dict[str, float]:
+        """Measure what a model with no retrieval ability actually scores.
+
+        The uniform-guess figure is a lower bound and a misleading one. Only
+        ``n_needles`` value tokens ever appear in a sequence, so a model that
+        has learned nothing except "the answer is one of the value-range tokens
+        I can see" already scores about ``1 / n_needles``. With the default two
+        needles that is roughly 52%, not 5%.
+
+        Getting this wrong inverts every "above chance" claim, so the floor is
+        measured by simulating the generator rather than asserted from the
+        vocabulary size.
+
+        Returns accuracies in percent for:
+          ``uniform``        guess uniformly over the value range
+          ``context_value``  guess a value-range token present in the context
+          ``last_value``     guess the last value-range token in the context
+          ``strongest``      the largest of the above; the floor to beat
+        """
+        import random as _random
+
+        rng = _random.Random(self.stream_seed + 7717)
+        saved = self._rng.getstate()
+        vr = self.cfg.val_range
+        hits = {"uniform": 0, "context_value": 0, "last_value": 0}
+        try:
+            for _ in range(n):
+                seq, target = self._one(block_size, self.cfg.n_needles, None)
+                if rng.randint(*vr) == target:
+                    hits["uniform"] += 1
+                present = [t for t in seq if vr[0] <= t <= vr[1]]
+                if present:
+                    if rng.choice(present) == target:
+                        hits["context_value"] += 1
+                    if present[-1] == target:
+                        hits["last_value"] += 1
+        finally:
+            self._rng.setstate(saved)
+
+        out = {k: 100.0 * v / n for k, v in hits.items()}
+        out["strongest"] = max(out.values())
+        out["n_simulated"] = float(n)
+        return out
+
     def sample_hashes(self, block_size: int, n: int = 8) -> List[str]:
         """Hashes of ``n`` sequences, for the leakage check. Does not disturb the stream."""
         saved = self._rng.getstate()

@@ -105,6 +105,19 @@ def find_matched_overlap_pairs(
         diff = abs(float(best["realized_overlap"]) - float(a["realized_overlap"]))
         if diff > tolerance:
             continue
+
+        # Reject self-comparisons. At lambda_red = 0 the redundancy penalty is
+        # weightless, so both arms train to bit-identical parameters (pinned by
+        # tests/test_experiments_smoke.py::TestControlledComparison). Such a
+        # pair contributes an exact zero to every delta, inflating n and
+        # dragging the mean toward zero while looking like a perfect match.
+        # Comparing run ids is not enough: they differ because the `variant`
+        # field differs, even though the models do not.
+        if (float(a.get("lambda_red", -1)) == 0.0
+                and float(best.get("lambda_red", -1)) == 0.0):
+            continue
+        if a.get("run_id") is not None and a.get("run_id") == best.get("run_id"):
+            continue
         pairs.append({
             "seed": a.get("seed"),
             "overlap_tolerance": tolerance,
@@ -266,6 +279,11 @@ def write_outputs(results_dir: Path, tolerance: float) -> Dict[str, object]:
         "tolerance": tolerance,
         "n_runs": len(rows),
         "n_matched_pairs": len(pairs),
+        "self_comparisons_excluded": (
+            "pairs where both arms had lambda_red = 0 are dropped: the penalty "
+            "is weightless there, so the two arms are the same model and the "
+            "comparison is vacuous"
+        ),
         "matched_pairs": pairs,
         "note": (
             "Pairs are matched on realized overlap measured after training, "

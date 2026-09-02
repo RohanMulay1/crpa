@@ -210,14 +210,30 @@ class DataConfig:
     dataset_config: str = "wikitext-2-raw-v1"
 
     @property
-    def chance_accuracy(self) -> float:
-        """Top-1 accuracy of uniform guessing over the value range, in percent.
+    def uniform_chance(self) -> float:
+        """Accuracy of guessing uniformly over the value range, in percent.
 
-        With the default 20-token value range this is 5.0%. Retrieval numbers
-        at or below this are not evidence of retrieval.
+        With the default 20-token value range this is 5.0%. **This is a lower
+        bound and on its own it is misleading.** Only ``n_needles`` value
+        tokens appear in any sequence, so a model that has learned nothing but
+        "the answer is a value-range token I can see" already scores about
+        ``100 / n_needles``, which is roughly 52% at the default settings.
+
+        Use :meth:`crpa.data.NeedleGenerator.measure_chance_floor`, which
+        simulates the generator, for the floor a result must actually clear.
         """
         n_vals = self.val_range[1] - self.val_range[0] + 1
         return 100.0 / n_vals
+
+    @property
+    def chance_accuracy(self) -> float:
+        """Deprecated alias for :attr:`uniform_chance`.
+
+        Retained so older code keeps running. Do not use it to decide whether a
+        result beat chance: it reports 5.0% where the measured floor is about
+        52%, which inverts the conclusion.
+        """
+        return self.uniform_chance
 
 
 @dataclass(frozen=True)

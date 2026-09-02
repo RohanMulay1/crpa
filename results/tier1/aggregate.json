@@ -1,5 +1,12 @@
 {
   "experiment": "tier1_multiseed",
+  "measured_chance_floor": {
+    "uniform": 4.95,
+    "context_value": 52.75,
+    "last_value": 51.65,
+    "strongest": 52.75,
+    "n_simulated": 2000.0
+  },
   "variants": {
     "crpa_contribution": {
       "label": "CRPA contribution-gated",
@@ -12,6 +19,9 @@
       "statuses": [
         "completed"
       ],
+      "measured_chance_floor": 52.75,
+      "margin_over_floor_pp": -48.44444444444444,
+      "beats_floor": false,
       "retrieval_accuracy": {
         "mean": 4.305555555555556,
         "std": 1.6839382851364084,
@@ -73,6 +83,9 @@
       "statuses": [
         "completed"
       ],
+      "measured_chance_floor": 52.75,
+      "margin_over_floor_pp": -48.166666666666664,
+      "beats_floor": false,
       "retrieval_accuracy": {
         "mean": 4.583333333333333,
         "std": 0.8333333333333335,
@@ -134,6 +147,9 @@
       "statuses": [
         "completed"
       ],
+      "measured_chance_floor": 52.75,
+      "margin_over_floor_pp": -48.30555555555556,
+      "beats_floor": false,
       "retrieval_accuracy": {
         "mean": 4.444444444444444,
         "std": 1.2729376930432887,
@@ -195,6 +211,9 @@
       "statuses": [
         "completed"
       ],
+      "measured_chance_floor": 52.75,
+      "margin_over_floor_pp": 0.8611111111111072,
+      "beats_floor": true,
       "retrieval_accuracy": {
         "mean": 53.61111111111111,
         "std": 1.7347216662217781,
@@ -256,6 +275,9 @@
       "statuses": [
         "completed"
       ],
+      "measured_chance_floor": 52.75,
+      "margin_over_floor_pp": -5.527777777777779,
+      "beats_floor": false,
       "retrieval_accuracy": {
         "mean": 47.22222222222222,
         "std": 7.025911038856523,

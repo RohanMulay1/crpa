@@ -136,9 +136,19 @@ Needle-in-Haystack over WikiText-2 filler. Key/value pairs are embedded at depth
 cross-partition hop through a relay. The last token is the query key and the
 target is its paired value.
 
-**Chance accuracy is 5.0%** (20 possible values). A variant at or below chance
-has not learned retrieval, and differences between two such variants are not
-evidence about retrieval quality. Every results table prints this.
+**The chance floor is measured, not asserted.** Dividing by the 20-value range
+gives 5.0%, and that figure is badly wrong as a floor. Only `n_needles` value
+tokens ever appear in a sequence, so a model that has learned nothing beyond
+"the answer is one of the value-range tokens I can see" already scores about
+`100 / n_needles`. Simulating the generator directly
+(`NeedleGenerator.measure_chance_floor`) puts the real floor at **52.78%**
+(sd 0.08 over 25,000 draws x 5 seeds) on the default two-needle config.
+
+We used the 5.0% figure at first and it inverted a conclusion, so the uniform
+number is now reported only as `uniform_chance` and never used for an
+above-chance verdict. Every results table prints the measured floor. A variant
+at or below it has not demonstrated retrieval, and differences between two such
+variants are not evidence about retrieval quality.
 
 ### Data separation
 
@@ -342,9 +352,11 @@ against naive at 5.3% and no-reg at 8.4%. Read them with four caveats:
 2. They came from the F1/F2 intervention, so the gate was selecting on a
    statistic substantially composed of no-ops, and `eps` was four orders of
    magnitude too large to reject them even if they had been real.
-3. Chance is 5.0%. Two of the three compared variants sit at 5.3% and 8.4%, so
-   the comparison is one partially-working model against two that are not
-   working.
+3. The measured floor is 52.78%, not the 5.0% uniform figure. All three
+   compared variants (32.8%, 5.3%, 8.4%) are *below* it, so the published
+   comparison ranks three models none of which demonstrated retrieval. Even
+   the 32.8% headline, had it reproduced, would have been 20 points under the
+   floor.
 4. Single seed.
 
 `--intervention_mode legacy_rowpair` reproduces the original *candidate
@@ -366,23 +378,39 @@ iterations, seeds 42 / 1337 / 2024.
 
 ### Tier 1: the central comparison
 
-| variant | retrieval % (mean over 3 seeds) | realized overlap | originally published |
-|---|---|---|---|
-| dense | **53.6** | 0.401 | 50.9 |
-| sliding window | *(see results/tier1)* | | 51.9 |
-| `crpa_noreg` | 4.4 | 0.244 | 8.4 |
-| `crpa_naive` | 4.6 | 0.264 | 5.3 |
-| `crpa_contribution` | 4.3 | 0.222 | 32.8 |
+| variant | retrieval % (mean, 3 seeds) | per-seed | vs floor | realized overlap | originally published |
+|---|---|---|---|---|---|
+| dense | 53.6 | 55.0 / 54.2 / 51.7 | **indistinguishable** (t = +0.8) | 0.401 | 50.9 |
+| sliding window | 47.2 | 50.4 / 39.2 / 52.1 | **indistinguishable** (t = -1.4) | | 51.9 |
+| `crpa_noreg` | 4.4 | 5.8 / 3.3 / 4.2 | below (t = -66) | 0.244 | 8.4 |
+| `crpa_naive` | 4.6 | 4.6 / 5.4 / 3.8 | below (t = -100) | 0.264 | 5.3 |
+| `crpa_contribution` | 4.3 | 3.3 / 6.2 / 3.3 | below (t = -50) | 0.222 | 32.8 |
 
-**Chance is 5.0%.** All three CRPA variants sit on it; their bootstrap intervals
-overlap each other and the chance line. The dense and sliding baselines
-reproduce the original closely, which is what establishes that the task is
-learnable and that the pipeline, splits and evaluation are sound. The CRPA null
-is therefore a fact about CRPA at this scale, not an artifact.
+**The measured floor is 52.78%, and no variant clears it.** Two-sided t against
+the floor, df = 2, critical value 4.303:
 
-Note the direction of the overlap column: dense has the **highest** realized
-overlap and by far the best retrieval. Reducing overlap is not what makes this
-task work.
+* **Dense and sliding are statistically indistinguishable from the trivial
+  floor.** Dense's +0.8 pp margin is half its own across-seed sd (1.73). It is
+  consistent with a model that guesses a value token it can see and never
+  learned the key-to-value association at all.
+* **All three CRPA variants land at the *uniform* 5% level** - roughly 48 points
+  *below* the trivial floor. They are worse than guessing from context, which
+  means they did not even learn the shape of the answer.
+
+This is a stronger negative result than the one we first wrote down, and it
+retracts a claim. An earlier draft of this README said the baselines "reproduce
+the original closely, which is what establishes that the task is learnable and
+that the pipeline is sound." That inference does not hold. Reproducing 50.9%
+and 51.9% is unremarkable when the floor is 52.78%, and the original's baseline
+figures are equally consistent with no retrieval having been learned by anyone.
+**At this scale the task is not demonstrably learnable by any variant tested,
+including dense**, so the CRPA null cannot be attributed to CRPA specifically.
+What remains sound is the pipeline validation from the four attribution
+controls below, which do not route through the retrieval metric.
+
+Note the direction of the overlap column anyway: dense has the **highest**
+realized overlap and the highest retrieval of the five. Reducing overlap is not
+what makes this task work, whatever the floor turns out to be.
 
 ### Structural overlap versus behavioral contribution
 
@@ -411,9 +439,11 @@ dispensable set.
 Four attribution controls were run, because several things changed at once here
 and a drop could not otherwise be assigned to any of them.
 
-**1. Baselines.** Dense and sliding reproduce the original closely, which
-establishes that the task is learnable and that the data, splits, training and
-evaluation are sound.
+**1. Baselines.** Dense and sliding reproduce the original's numbers closely
+(53.6 vs 50.9, 47.2 vs 51.9), which establishes that the data, splits, training
+loop and evaluation path run end to end and land where the original landed. It
+does **not** establish that the task is learnable: both sit on the measured
+52.78% floor. Treat this control as pipeline agreement only.
 
 **2. Legacy gate semantics** (`--intervention_mode legacy_rowpair`) gives 4.4%
 over three seeds, against 4.3% for the repaired gate. The change in intervention
@@ -433,8 +463,9 @@ otherwise start. `git diff --stat` over the source is that one line.
 | **CRPA causal reg.** | **32.8%** | **7.5%** | **does not reproduce** |
 
 Four of five rows come back. The one that does not is the one the paper's claim
-rests on, and it misses by a factor of 4.4, landing barely above the 5.0% chance
-rate and **below its own no-regularization baseline**. The original's own
+rests on, and it misses by a factor of 4.4, landing at the uniform-guess level
+and **below its own no-regularization baseline**. The published 32.8% would not
+have cleared the 52.78% measured floor either. The original's own
 verification code says so, in its own words:
 
 ```
@@ -794,8 +825,9 @@ correctable from the repository.
 
 - **Three seeds is few.** Bootstrap intervals over three points are wide. They
   are reported rather than hidden, but they do not support fine distinctions.
-- **The retrieval task is synthetic and narrow.** Twenty possible values, chance
-  5%, one needle depth band. It probes relay-mediated cross-partition retrieval
+- **The retrieval task is synthetic, narrow, and has a high trivial floor.**
+  Twenty possible values but only two in any sequence, so the measured floor is
+  52.78% and the headroom above it is small. One needle depth band. It probes relay-mediated cross-partition retrieval
   specifically, and generalises to nothing on its own.
 - **Language modelling is barely trained.** With `ret_ratio = 0.90`, 90% of
   steps are the retrieval task. Perplexities in the hundreds reflect that. They
@@ -943,6 +975,10 @@ temporary file plus `os.replace`.
 ## Citation
 
 The original repository described itself as a reproduction of a NeurIPS 2026
-paper. We have not verified that the paper exists, and this README makes no
-claim about it. What is reproducible is what is in this repository, at the
+paper. We could not locate such a paper, and the dates do not work: the
+repository's first commit is 2026-05-27, after the NeurIPS 2026 abstract
+deadline of 2026-05-04, so a NeurIPS 2026 paper could not have been public to
+reproduce from. This README therefore carries no citation and makes no claim
+about the paper's existence. Anyone submitting work built on this repository
+should resolve that reference or drop it. What is reproducible is what is in this repository, at the
 scales the results files record.

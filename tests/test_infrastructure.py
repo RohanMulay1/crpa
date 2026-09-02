@@ -378,3 +378,37 @@ class TestRecordedConfigMatchesTheRun:
         a = ExperimentConfig().replace(**{"train.max_iters": 0})
         b = ExperimentConfig().replace(**{"train.max_iters": 2000})
         assert run_id(a.canonical_json(), 42) != run_id(b.canonical_json(), 42)
+
+
+class TestPinnedAuxiliaryTerms:
+    """An auxiliary term at its own analytic bound is not a result.
+
+    Routing entropy was measured at 1.386278 against a maximum of ln(4) =
+    1.386294 in every condition and every seed. That says the router is
+    inactive, not that it achieved balance, and reporting it as a finding
+    publishes a constant.
+    """
+
+    def test_a_value_at_the_maximum_is_flagged(self):
+        import math as _math
+
+        from crpa.metrics import pinned_at_extremum
+
+        out = pinned_at_extremum(1.386278, 0.0, _math.log(4))
+        assert out["pinned"] is True and out["at_max"] is True
+        assert "not a result" in out["note"]
+
+    def test_a_value_at_the_minimum_is_flagged(self):
+        from crpa.metrics import pinned_at_extremum
+
+        out = pinned_at_extremum(6.0, 6.0, 24.0)
+        assert out["pinned"] is True and out["at_min"] is True
+
+    def test_a_value_in_between_is_not_flagged(self):
+        import math as _math
+
+        from crpa.metrics import pinned_at_extremum
+
+        out = pinned_at_extremum(0.9, 0.0, _math.log(4))
+        assert out["pinned"] is False
+        assert out["note"] == "not pinned"

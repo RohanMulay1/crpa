@@ -177,3 +177,47 @@ class TestNeedlePosition:
             for block in (64, 128, 512):
                 seq, _ = gen._one(block, 2, None)
                 assert len(seq) == block
+
+
+class TestChanceFloorIsMeasuredNotAssumed:
+    """The floor must come from simulating the generator.
+
+    Asserting it from vocabulary size gives 5%, but only ``n_needles`` value
+    tokens appear in any sequence, so "guess a value token you can see" already
+    scores about 100/n_needles. On the default config that is roughly 52%, and
+    using the 5% figure inverts every "above chance" verdict for a strong
+    variant. This was a real error in the reported CRPA results.
+    """
+
+    def test_uniform_chance_is_the_vocabulary_figure(self):
+        cfg = DataConfig()
+        assert cfg.uniform_chance == pytest.approx(5.0)
+        assert cfg.chance_accuracy == cfg.uniform_chance
+
+    def test_the_measured_floor_is_far_above_the_uniform_figure(self):
+        gen = NeedleGenerator(DataConfig(), EVAL, 42)
+        floor = gen.measure_chance_floor(256, n=1500)
+        assert floor["uniform"] == pytest.approx(5.0, abs=2.0)
+        # Two needles -> a context-value guess is right about half the time.
+        assert floor["context_value"] > 40.0
+        assert floor["strongest"] >= floor["context_value"]
+        assert floor["strongest"] > 8 * floor["uniform"], (
+            "the trivial floor should dwarf the uniform figure; if it does "
+            "not, the generator changed and the reported floor is stale"
+        )
+
+    def test_the_floor_tracks_the_needle_count(self):
+        """More needles means more candidates, so a lower trivial floor."""
+        two = NeedleGenerator(DataConfig(n_needles=2), EVAL, 42
+                              ).measure_chance_floor(256, n=1200)
+        five = NeedleGenerator(DataConfig(n_needles=5), EVAL, 42
+                               ).measure_chance_floor(256, n=1200)
+        assert two["context_value"] > five["context_value"] + 10.0
+
+    def test_measuring_the_floor_does_not_disturb_the_stream(self):
+        """The floor is diagnostic; it must not consume evaluation samples."""
+        gen = NeedleGenerator(DataConfig(), EVAL, 42)
+        gen.measure_chance_floor(128, n=200)
+        after = gen.batch(128, 2)
+        fresh = NeedleGenerator(DataConfig(), EVAL, 42).batch(128, 2)
+        assert torch.equal(after[0], fresh[0])

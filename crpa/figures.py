@@ -411,12 +411,16 @@ def fig_seed_robustness(results_root: Path, out_dir: Path) -> Path:
                         ha="center", fontsize=8.5, color=INK)
         ax.margins(y=0.16)
 
-    chance = _num(rows[0].get("chance_accuracy_mean", "nan"))
+    # Prefer the measured floor over the uniform figure: the latter is 5% here
+    # and putting that line on the chart makes every baseline look like it
+    # learned the task when it is sitting on the trivial floor.
+    chance = _num(rows[0].get("measured_chance_floor",
+                              rows[0].get("chance_accuracy_mean", "nan")))
     if math.isfinite(chance):
         ax1.axhline(chance, color=INK_MUTED, linewidth=1.4, linestyle=(0, (5, 3)),
                     zorder=5)
         # Left edge: the right-hand bars carry value labels near this height.
-        ax1.annotate("chance ({:.0f}%)".format(chance),
+        ax1.annotate("trivial floor ({:.0f}%)".format(chance),
                      xy=(ax1.get_xlim()[0], chance), xytext=(4, 4),
                      textcoords="offset points", ha="left", va="bottom",
                      fontsize=8, color=INK_MUTED)

@@ -374,6 +374,37 @@ def top_k_agreement(rank_a: Sequence[int], rank_b: Sequence[int], k: int) -> flo
     return len(a & b) / float(k)
 
 
+def pinned_at_extremum(
+    value: float, minimum: float, maximum: float, tol: float = 1e-4
+) -> Dict[str, object]:
+    """Flag an auxiliary quantity sitting at its own analytic bound.
+
+    A load-balance loss at exactly its uniform-routing minimum, or an entropy
+    at exactly ``ln(n_partitions)``, carries no information: it is telling you
+    the term is inactive, not that the model achieved something. Reporting such
+    a value as a result is a way to publish a constant.
+
+    This is not hypothetical here. Routing entropy was measured at 1.386278
+    against a maximum of ln(4) = 1.386294 in every condition and every seed.
+    """
+    span = max(abs(maximum - minimum), 1e-12)
+    at_min = abs(value - minimum) / span < tol
+    at_max = abs(value - maximum) / span < tol
+    return {
+        "value": value,
+        "analytic_min": minimum,
+        "analytic_max": maximum,
+        "at_min": bool(at_min),
+        "at_max": bool(at_max),
+        "pinned": bool(at_min or at_max),
+        "note": (
+            "pinned at its analytic {}; the term is inactive and this value is "
+            "not a result".format("minimum" if at_min else "maximum")
+            if (at_min or at_max) else "not pinned"
+        ),
+    }
+
+
 def perplexity(loss: float) -> float:
     """Perplexity from a mean cross-entropy, guarded against overflow."""
     if not math.isfinite(loss):

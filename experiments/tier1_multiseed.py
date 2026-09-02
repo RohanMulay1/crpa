@@ -30,6 +30,7 @@ from typing import Dict, List
 import torch
 
 from crpa.config import CENTRAL_VARIANTS, VARIANT_LABELS, ExperimentConfig
+from crpa.data import EVAL
 from crpa.evaluate import (
     language_model_loss,
     measure_overlap,
@@ -80,14 +81,24 @@ def run_one(
     overlap = measure_overlap(model, corpus, run_cfg, device, n_batches=8, seed=seed)
 
     gate = history["gate_hist"][-1] if history["gate_hist"] else {}
+    # Measured by simulating the generator, not asserted from vocabulary size.
+    # Only n_needles value tokens appear in a sequence, so "guess a value token
+    # you can see" already scores about 52%. Judging against the 5% uniform
+    # figure inverts the conclusion for every strong variant.
+    floor = corpus.needles[EVAL].measure_chance_floor(block, n=2000)
+
     metrics: Dict[str, object] = {
         "calibration_loss": calib_loss,
         "calibration_ppl": perplexity(calib_loss),
         "eval_loss": eval_loss,
         "eval_ppl": perplexity(eval_loss),
         "retrieval_accuracy": retrieval,
-        "chance_accuracy": run_cfg.data.chance_accuracy,
-        "above_chance": retrieval > run_cfg.data.chance_accuracy,
+        "uniform_chance": floor["uniform"],
+        "chance_floor_context_value": floor["context_value"],
+        "chance_floor_last_value": floor["last_value"],
+        "chance_accuracy": floor["strongest"],
+        "above_chance": retrieval > floor["strongest"],
+        "margin_over_floor_pp": retrieval - floor["strongest"],
         "realized_overlap": overlap,
         "n_params": model.n_params(),
         "n_gate_refreshes": len(history["gate_hist"]),
@@ -108,6 +119,35 @@ def run_one(
     return {"metrics": metrics, "model": model, "config": run_cfg}
 
 
+def _measured_floor(records) -> Dict[str, float]:
+    """Simulate the generator to find what a non-retrieving model scores.
+
+    The floor is a property of the data generator and the config, not of any
+    trained model, so it can be recovered from a stored record long after the
+    run. That is what makes it possible to correct results written before the
+    floor was measured.
+    """
+    from crpa.config import DataConfig
+    from crpa.data import EVAL as _EVAL
+    from crpa.data import NeedleGenerator
+
+    for rec in records:
+        data_cfg = (rec.config or {}).get("data")
+        if not data_cfg:
+            continue
+        try:
+            cfg = DataConfig(**{
+                k: (tuple(v) if isinstance(v, list) else v)
+                for k, v in data_cfg.items()
+            })
+        except TypeError:
+            continue
+        block = rec.context_length or 512
+        gen = NeedleGenerator(cfg, _EVAL, rec.seed or 42)
+        return gen.measure_chance_floor(block, n=2000)
+    return {}
+
+
 def aggregate(results_dir: Path) -> Dict[str, object]:
     """Mean / std / bootstrap CI per variant, across seeds.
 
@@ -119,13 +159,22 @@ def aggregate(results_dir: Path) -> Dict[str, object]:
     for rec in records:
         by_variant.setdefault(rec.variant or "unknown", []).append(rec)
 
+    # Records written before the floor was measured carry the misleading 5%
+    # uniform figure. Recompute from the config each record stores, so old
+    # results are corrected on aggregation instead of silently kept.
+    measured_floor = _measured_floor(records)
+
     fields = ["retrieval_accuracy", "realized_overlap", "eval_loss",
               "eval_ppl", "calibration_loss", "calibration_ppl",
               # Carried through so figures and tables can draw the chance line.
               # With this task at 5.0%, whether a bar clears it is the first
               # thing a reader needs to see.
               "chance_accuracy"]
-    out: Dict[str, object] = {"experiment": EXPERIMENT, "variants": {}}
+    out: Dict[str, object] = {
+        "experiment": EXPERIMENT,
+        "measured_chance_floor": measured_floor,
+        "variants": {},
+    }
     for variant, recs in sorted(by_variant.items()):
         entry: Dict[str, object] = {
             "label": VARIANT_LABELS.get(variant, variant),
@@ -133,6 +182,14 @@ def aggregate(results_dir: Path) -> Dict[str, object]:
             "n_runs": len(recs),
             "statuses": sorted({r.status.value for r in recs}),
         }
+        if measured_floor:
+            ret_mean = summarise([
+                r.metrics["retrieval_accuracy"] for r in recs
+                if isinstance(r.metrics.get("retrieval_accuracy"), (int, float))
+            ])["mean"]
+            entry["measured_chance_floor"] = measured_floor["strongest"]
+            entry["margin_over_floor_pp"] = ret_mean - measured_floor["strongest"]
+            entry["beats_floor"] = bool(ret_mean > measured_floor["strongest"])
         for field in fields:
             values = [
                 r.metrics[field] for r in recs
@@ -197,7 +254,10 @@ def main(argv: List[str] | None = None) -> int:
     print("device={}  seeds={}  variants={}".format(device, seeds, variants))
     print("intervention mode={}  attention impl={}".format(
         cfg.contribution.mode, cfg.model.attention_impl))
-    print("chance retrieval accuracy = {:.1f}%".format(cfg.data.chance_accuracy))
+    print("NOTE: the floor is measured by simulating the generator, not taken "
+          "from vocabulary\nsize. Only {} value tokens appear per sequence, so "
+          "'guess a value token you can\nsee' already scores about {:.0f}%.".format(
+              cfg.data.n_needles, 100.0 / max(cfg.data.n_needles, 1)))
 
     plan = [
         (make_run_id(cfg.replace(variant=v, **{"train.seed": s}), s, EXPERIMENT),
@@ -238,9 +298,12 @@ def main(argv: List[str] | None = None) -> int:
                     torch.save(result["model"].state_dict(),
                                ckpt / "{}_{}_{}.pt".format(variant, seed, rid))
             m = rec.metrics
-            print("  retrieval={:.1f}%  overlap={:.3f}  eval_ppl={:.2f}  {}".format(
-                m["retrieval_accuracy"], m["realized_overlap"], m["eval_ppl"],
-                "ABOVE chance" if m["above_chance"] else "at/below chance"))
+            print("  retrieval={:.1f}%  floor={:.1f}%  margin={:+.1f}pp  "
+                  "overlap={:.3f}  eval_ppl={:.2f}  {}".format(
+                      m["retrieval_accuracy"], m["chance_accuracy"],
+                      m["margin_over_floor_pp"], m["realized_overlap"],
+                      m["eval_ppl"],
+                      "ABOVE floor" if m["above_chance"] else "at/below floor"))
 
     write_outputs(results_dir)
     print_header("Aggregate")
@@ -252,9 +315,9 @@ def main(argv: List[str] | None = None) -> int:
         print("{:<26} {:>7.1f} +/- {:<5.1f} {:>7.3f}+/-{:<5.3f} {:>11.2f}".format(
             entry["label"], r["mean"], r["std"], o["mean"], o["std"], p["mean"]))
     print("\nWrote {}".format(results_dir))
-    print("Chance = {:.1f}%. Variants at or below chance have not learned "
-          "retrieval; differences among them are not evidence about retrieval "
-          "quality.".format(cfg.data.chance_accuracy))
+    print("The floor is the strongest trivial strategy, measured by simulating "
+          "the generator.\nA variant at or below it has not learned retrieval, "
+          "and differences among such\nvariants are not evidence about retrieval.")
     return 0
 
 

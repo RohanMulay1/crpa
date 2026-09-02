@@ -206,14 +206,23 @@ def routing_diagnostics(
         return {"empty_partition_pct": float("nan"), "routing_entropy": float("nan"),
                 "load_error": float("nan"), "n_partitions": 0}
 
+    from crpa.metrics import pinned_at_extremum
+
     S = torch.cat(per_layer)
     avg = S.mean(0)
+    entropy = float(-(S * (S + 1e-9).log()).sum(-1).mean().item())
+    max_entropy = float(math.log(S.shape[-1]))
+    pinned = pinned_at_extremum(entropy, 0.0, max_entropy)
     return {
         "empty_partition_pct": float((avg < 0.01).float().mean().item() * 100),
-        "routing_entropy": float(-(S * (S + 1e-9).log()).sum(-1).mean().item()),
+        "routing_entropy": entropy,
         "load_error": float(avg.std().item()),
         "n_partitions": int(S.shape[-1]),
-        "max_entropy": float(math.log(S.shape[-1])),
+        "max_entropy": max_entropy,
+        # Uniform routing maximises entropy. If it is pinned there the router
+        # is doing nothing and the number is not a finding.
+        "entropy_pinned_at_uniform": pinned["at_max"],
+        "routing_note": pinned["note"],
     }
 
 
