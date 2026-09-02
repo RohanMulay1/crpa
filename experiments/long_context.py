@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import math
+from pathlib import Path
 from typing import Dict, List, Optional
 
 import numpy as np
@@ -47,7 +48,15 @@ from crpa.attention import relay_positions
 from crpa.kvcache import attention_edge_counts, kv_cache_table
 from crpa.metrics import spearman
 from crpa.model import GPT
-from crpa.runmeta import RunRecord, Status, environment, save_record, write_csv, write_json
+from crpa.runmeta import (
+    RunRecord,
+    Status,
+    environment,
+    load_records,
+    save_record,
+    write_csv,
+    write_json,
+)
 from crpa.seeding import set_seed
 from crpa.train import train
 from experiments.common import (
@@ -62,6 +71,26 @@ from experiments.common import (
 )
 
 EXPERIMENT = "long_context"
+
+
+def collect_rows(results_dir: Path) -> List[Dict[str, object]]:
+    """Flatten every record on disk into CSV rows, ordered by context length.
+
+    Includes non-numeric statuses so an OOM stays visible as an OOM, with no
+    metrics attached.
+    """
+    out: List[Dict[str, object]] = []
+    for rec in load_records(results_dir):
+        if rec.experiment != EXPERIMENT:
+            continue
+        row = {"seed": rec.seed, "status": rec.status.value,
+               "context_length": rec.context_length}
+        if rec.status.is_numeric:
+            row.update({k: v for k, v in rec.metrics.items()
+                        if isinstance(v, (int, float, bool, str))})
+        out.append(row)
+    out.sort(key=lambda r: (r.get("context_length") or 0, r.get("seed") or 0))
+    return out
 
 
 def diagnose_at_length(
@@ -307,6 +336,11 @@ def main(argv: List[str] | None = None) -> int:
                              "status": Status.OOM.value})
                 print("  ctx={:<7} OOM - recorded as oom, no numbers".format(length))
             save_record(results_dir, record)
+
+    # Build the CSV from every record on disk, not just this invocation's
+    # rows. Re-running a single context length would otherwise overwrite the
+    # file with that one row and silently discard the others.
+    rows = collect_rows(results_dir)
 
     kv_rows = kv_cache_table(cfg.model, lengths, dtype="bfloat16", batch_size=1)
     if rows:

@@ -1,7 +1,7 @@
 {
   "run_id": "9cac079c9c8a",
   "experiment": "long_context",
-  "status": "oom",
+  "status": "completed",
   "config": {
     "model": {
       "n_embd": 768,
@@ -89,7 +89,42 @@
       65536
     ]
   },
-  "metrics": {},
+  "metrics": {
+    "context_length": 8192,
+    "n_candidates_scored": 24,
+    "probs_window": 1024,
+    "retrieval_accuracy": 0.0,
+    "realized_overlap": 0.23553591633107004,
+    "delta_mean": 0.0,
+    "delta_std": 0.0,
+    "delta_p50": 0.0,
+    "delta_p90": 0.0,
+    "delta_max": 0.0,
+    "single_edge_deltas_all_zero": true,
+    "group_delta": 9.5367431640625e-07,
+    "group_n_edges": 24,
+    "group_n_removed": 24,
+    "float32_resolution_estimate": 1.3199999999999999e-06,
+    "ranking_stability_spearman": NaN,
+    "frac_high_overlap_low_contribution": 0.25,
+    "frac_high_overlap_high_contribution": 0.25,
+    "group_thresholds": {
+      "overlap": 0.8093532757531072,
+      "low_contribution": 0.0,
+      "high_contribution": 0.0,
+      "high_overlap_q": 0.75,
+      "low_contribution_q": 0.25,
+      "high_contribution_q": 0.75
+    },
+    "theoretical_causal_edges": 33558528,
+    "actual_edges": 2402865.714285714,
+    "sparsity_ratio": 0.07160223816389426,
+    "edge_count_is_upper_bound": false,
+    "dense_causal_edges": 33558528.0,
+    "crpa_edges_upper_bound": 4784128,
+    "sparsity_ratio_upper_bound": 0.1425607225680459,
+    "edges_per_query": 552
+  },
   "seed": 42,
   "context_length": 8192,
   "dtype": "float32",
@@ -145,10 +180,10 @@
     }
   },
   "notes": "",
-  "error": "CUDA out of memory. Tried to allocate 3.00 GiB. GPU 0 has a total capacity of 44.39 GiB of which 1.46 GiB is free. Including non-PyTorch memory, this process has 42.92 GiB memory in use. Of the allocated memory 42.09 GiB is allocated by PyTorch, and 349.02 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)",
+  "error": null,
   "duration_s": null,
-  "timestamp": "2026-09-02T16:42:09+0000",
-  "git_sha": "eef9ca465331331702b8b7c44849d1b7f4777d62",
+  "timestamp": "2026-09-02T17:30:41+0000",
+  "git_sha": "741f3ce2be10244ef68e226f2a7a8b50c49ba3e1",
   "git_dirty": true,
   "env": {
     "hostname": "72f9ce18025a",

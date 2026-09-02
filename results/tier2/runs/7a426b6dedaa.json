@@ -117,14 +117,14 @@
       "n_tokens": 248461,
       "needle_stream_seed": 42001,
       "sample_hashes": [
-        "649b789b2b40f804",
-        "054e46201fac7b57",
-        "3749932d901a268d",
-        "51f0aa370f25e547",
-        "de698ad67bc95dfd",
-        "2fb63af5f8540439",
-        "99c3dbe86db4e8d7",
-        "95d55f20173f8c26"
+        "4376784f14732f39",
+        "a53c2d279daf67ac",
+        "18bfe371b1030485",
+        "72f98eb37e7b9acf",
+        "0f065c24d7a817e8",
+        "3c502694bd9800dc",
+        "b08e9cf8d61fbb77",
+        "893eda56d874e116"
       ]
     },
     "evaluation": {
@@ -133,22 +133,22 @@
       "n_tokens": 284614,
       "needle_stream_seed": 42002,
       "sample_hashes": [
-        "4a9c16509711fc04",
-        "0ca28340a8fea9db",
-        "2de36280fd4114b6",
-        "89dd383d9c712015",
-        "44be56c2024c5c63",
-        "b58099d84c88fb32",
-        "54ed3c57ce461073",
-        "b1902888a7c11a58"
+        "639908cc9eb44fcc",
+        "56ecaca1980db857",
+        "5a7f06fd8ee55c23",
+        "0271b865aab536a2",
+        "3662fe829224764b",
+        "7a637d19682b47fc",
+        "4d2e9e79f7eff83d",
+        "3009c5d1010ca3ec"
       ]
     }
   },
   "notes": "",
-  "error": "CUDA out of memory. Tried to allocate 12.00 GiB. GPU 0 has a total capacity of 44.39 GiB of which 1.26 GiB is free. Including non-PyTorch memory, this process has 43.13 GiB memory in use. Of the allocated memory 41.22 GiB is allocated by PyTorch, and 1.41 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)",
+  "error": "CUDA out of memory. Tried to allocate 104.00 MiB. GPU 0 has a total capacity of 44.39 GiB of which 13.38 MiB is free. Including non-PyTorch memory, this process has 44.37 GiB memory in use. Of the allocated memory 43.44 GiB is allocated by PyTorch, and 446.64 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)",
   "duration_s": null,
-  "timestamp": "2026-09-02T16:45:29+0000",
-  "git_sha": "eef9ca465331331702b8b7c44849d1b7f4777d62",
+  "timestamp": "2026-09-02T17:40:04+0000",
+  "git_sha": "741f3ce2be10244ef68e226f2a7a8b50c49ba3e1",
   "git_dirty": true,
   "env": {
     "hostname": "72f9ce18025a",
