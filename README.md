@@ -72,6 +72,25 @@ experiment cannot be represented on the dense path on any GPU.
 `tests/test_attention.py::TestImplementationEquivalence` asserts the two agree
 to floating-point tolerance, including for ragged final blocks.
 
+### Reading attention back out
+
+Overlap statistics need the attention probabilities, and retaining them densely
+has the same problem: `(B, H, T, T)` is 12.9 GB per layer at `T=16384` with 12
+heads, and 180 GB across the 14-layer profile. But each non-relay query has at
+most `partition_size + n_relays + cross_k` permitted keys, about 552 at the
+medium profile, so the dense form is over 97% zeros.
+
+Diagnostics therefore retain attention in its **gathered** form for a window of
+queries (`SparseProbs`): roughly 27 MB per layer, independent of context
+length. The window sits at the end of the sequence, which is also where
+reachability concentrates under a last-token loss.
+
+Relay rows are excluded from the overlap comparison in both representations. A
+relay attends causally to everything by construction, so its support overlaps
+every local query as an artifact of the mask rather than as evidence of
+redundancy, and the gathered form cannot represent it. With that exclusion the
+two computations agree to 2.9e-08 across 3024 edges, which a test pins.
+
 A note on the two meanings of "partition": the local window `P(i)` is defined by
 *position*, while `C_k(i)` excludes keys sharing the query's *router*
 assignment. These are different notions. The original did this and we preserved
@@ -149,6 +168,10 @@ pip install torch numpy scipy pandas matplotlib pyyaml pytest
 
 # For WikiText-2 and the Tier 3 diagnostic
 pip install datasets transformers
+
+# Note: the corpus is loaded as `Salesforce/wikitext`. Newer huggingface_hub
+# rejects the bare `wikitext` id the original used; Corpus.load falls back
+# through known aliases and records which one resolved.
 
 # GPU (the original used CUDA 12.4 wheels on an A6000 driver reporting 12.8)
 pip install torch --index-url https://download.pytorch.org/whl/cu124
@@ -411,6 +434,7 @@ and not an implementation defect.
 | Realized overlap, retrieval, delta distributions | **Measured.** |
 | Actual CRPA edge count, sparsity ratio | **Measured** from the realised mask. |
 | `crpa_edges_upper_bound` | **Analytical upper bound.** The three sources can overlap, so the realised count is at or below it. |
+| `actual_edges` above 8k context | **Analytical upper bound**, flagged by `edge_count_is_upper_bound`. Counting exactly would mean materialising a `(T, T)` mask, which is 4.3 GB of booleans at 65536. |
 | KV cache | **Analytical** by default; `measured` when the tensors are actually allocated. Every row is labelled. |
 
 Neither figure is a measurement of decoding throughput. This repository has no
@@ -485,6 +509,10 @@ correctable from the repository.
 - **The two meanings of "partition"** (positional window versus router
   assignment) are inherited and not resolved.
 - **No decoding loop**, so no KV-cache or throughput claim about generation.
+- **Long-context overlap is measured on a window**, not the whole sequence, and
+  excludes relay rows. Both are stated in the results (`probs_window`), but they
+  mean the long-context overlap figure is a windowed estimate rather than a
+  full-sequence one.
 
 ---
 
