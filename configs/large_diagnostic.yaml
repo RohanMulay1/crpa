@@ -1,0 +1,65 @@
+# Tier 3 frozen large-model diagnostic.
+#
+# This profile does NOT train anything. It parameterises an intervention study
+# on a pretrained open-weight causal LM loaded through Hugging Face. The
+# `model` block below describes the CRPA-side analysis settings (partitioning
+# used to define P(i) over the frozen model's positions), not an architecture
+# to instantiate.
+#
+# The frozen model itself is selected at the command line with --model_id.
+profile: large_diagnostic
+variant: crpa_contribution
+multi_seeds: [42]
+scale_lens: [1024, 2048]
+
+model:
+  n_embd: 768
+  n_head: 12
+  n_layer: 12
+  dropout: 0.0
+  vocab_size: 50257
+  block_size: 2048
+  position: rope
+  partition_size: 256
+  n_relays: 8
+  cross_k: 8
+  route_temp: 0.70
+  overlap_rho: 0.60
+  attention_impl: dense_masked
+
+train:
+  batch_size: 1
+  max_iters: 0              # nothing is trained in Tier 3
+  eval_iters: 1
+  eval_interval: 1
+  lr: 0.0
+  weight_decay: 0.0
+  grad_clip: 1.0
+  warmup_steps: 0
+  ret_ratio: 1.0
+  lambda_bal: 0.0
+  lambda_red: 0.0
+  seed: 42
+  checkpoint_every: 0
+
+contribution:
+  eps: 0.01
+  interval: 1
+  n_pairs: 32
+  warmup_steps: 0
+  mode: edge
+  overlap_threshold: 0.20
+  n_samples: 32
+  high_overlap_q: 0.75
+  low_contribution_q: 0.25
+  high_contribution_q: 0.75
+
+data:
+  filler_range: [2000, 9999]
+  key_range: [100, 119]
+  val_range: [120, 139]
+  needle_depth_range: [0.55, 0.73]
+  needle_depths: [0.1, 0.3, 0.5, 0.7, 0.9]
+  n_needles: 2
+  dataset_name: wikitext
+  dataset_config: wikitext-2-raw-v1

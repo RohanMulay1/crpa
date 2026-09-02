@@ -1,0 +1,60 @@
+# Tier 1 controlled mechanism study.
+# Matches the original repository hyperparameters exactly, so results from
+# this profile are comparable with the tables committed on main.
+# ~12.4M parameters, 512-token context.
+profile: small_12m
+variant: crpa_contribution
+multi_seeds: [42, 1337, 2024]
+scale_lens: [64, 128, 256, 512]
+
+model:
+  n_embd: 192
+  n_head: 8
+  n_layer: 6
+  dropout: 0.10
+  vocab_size: 50257
+  block_size: 512
+  position: learned          # backwards compatible with committed checkpoints
+  partition_size: 128        # 4 partitions at 512 tokens
+  n_relays: 4
+  cross_k: 4
+  route_temp: 0.70
+  overlap_rho: 0.60
+  attention_impl: dense_masked   # exact reference path at short context
+
+train:
+  batch_size: 16
+  max_iters: 4000
+  eval_iters: 20
+  eval_interval: 400
+  lr: 3.0e-4
+  weight_decay: 0.10
+  grad_clip: 1.0
+  warmup_steps: 200
+  ret_ratio: 0.90
+  lambda_bal: 0.01
+  lambda_red: 0.05
+  seed: 42
+  checkpoint_every: 1000
+
+contribution:
+  eps: 0.03
+  interval: 200
+  n_pairs: 8               # removal budget, identical for naive and gated
+  warmup_steps: 600        # applied to BOTH gated variants, removing a confound
+  mode: edge               # 'legacy_rowpair' reproduces the original semantics
+  overlap_threshold: 0.20
+  n_samples: 8
+  high_overlap_q: 0.75
+  low_contribution_q: 0.25
+  high_contribution_q: 0.75
+
+data:
+  filler_range: [2000, 9999]
+  key_range: [100, 119]
+  val_range: [120, 139]     # 20 values -> 5% chance accuracy
+  needle_depth_range: [0.55, 0.73]   # one partition away; forces a relay hop
+  needle_depths: [0.1, 0.3, 0.5, 0.7, 0.9]
+  n_needles: 2
+  dataset_name: wikitext
+  dataset_config: wikitext-2-raw-v1

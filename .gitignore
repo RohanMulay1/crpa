@@ -1,0 +1,42 @@
+# Byte-compiled
+__pycache__/
+*.py[cod]
+*.so
+
+# Environments
+.venv/
+venv/
+.env
+*.env
+.env.*
+
+# Model checkpoints (never commit — large binaries)
+checkpoints/
+*.pt
+*.pth
+*.safetensors
+*.bin
+
+# Generated experiment outputs.
+# results/ is tracked for the historical A6000 artifacts committed on main,
+# but per-run payloads and regenerated figures are not.
+results/**/runs/
+results/**/raw/
+results/tier1/
+results/tier2/
+results/tier3/
+results/matched_overlap/
+results/estimator_stability/
+results/figures/
+results/smoke/
+
+# Caches
+.pytest_cache/
+.hypothesis/
+.ipynb_checkpoints/
+*.log
+!results/run_a6000.log
+
+# OS
+.DS_Store
+Thumbs.db
