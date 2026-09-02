@@ -209,7 +209,16 @@ def fig_structural_vs_behavioral(results_root: Path, out_dir: Path) -> Path:
 # ---------------------------------------------------------------------------
 
 def fig_matched_overlap(results_root: Path, out_dir: Path) -> Path:
-    """Retrieval against realized overlap, with matched pairs joined."""
+    """Two panels: does lambda steer overlap, and does overlap predict retrieval?
+
+    The left panel is the control the experiment depends on. Matching two
+    methods at an equal structural budget only means something if the
+    regularization strength actually sets that budget. The right panel is the
+    outcome the claim is about.
+
+    The title states what the figure shows rather than a conclusion, because on
+    the measured data neither panel supports one.
+    """
     src = results_root / "matched_overlap" / "sweep.csv"
     rows = _read_csv(src)
     if not rows:
@@ -217,45 +226,72 @@ def fig_matched_overlap(results_root: Path, out_dir: Path) -> Path:
             "missing {}. Run: python -m experiments.matched_overlap".format(src))
 
     pairs = _read_csv(results_root / "matched_overlap" / "matched_pairs.csv")
+    methods = ("crpa_naive", "crpa_contribution")
 
-    fig, ax = plt.subplots(figsize=(7.4, 5.0))
-    _style(ax, "Realized attention overlap (measured after training)",
-           "Retrieval accuracy (%)",
-           "At a matched overlap budget, which edges are removed decides the outcome")
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12.4, 4.8))
 
-    for variant in ("crpa_naive", "crpa_contribution"):
-        sel = [r for r in rows if r.get("variant") == variant]
+    # -- left: does lambda steer realized overlap? --------------------------
+    _style(ax1, "Regularization strength (lambda_red)", "Realized overlap",
+           "Does lambda set the overlap budget?")
+    for method in methods:
+        sel = [r for r in rows if r.get("variant") == method]
         if not sel:
             continue
-        xs = np.array([_num(r["realized_overlap"]) for r in sel])
-        ys = np.array([_num(r["retrieval_accuracy"]) for r in sel])
-        order = np.argsort(xs)
-        ax.plot(xs[order], ys[order], color=VARIANT_COLOR[variant], linewidth=2.0,
-                marker="o", markersize=8, markeredgecolor=SURFACE,
-                markeredgewidth=1.2, label=VARIANT_LABEL[variant], zorder=3)
+        lam = np.array([_num(r["lambda_red"]) for r in sel])
+        ov = np.array([_num(r["realized_overlap"]) for r in sel])
+        ax1.scatter(lam, ov, s=58, c=VARIANT_COLOR[method], alpha=0.75,
+                    linewidths=0.8, edgecolors=SURFACE,
+                    label=VARIANT_LABEL[method], zorder=3)
+        by_lam: Dict[float, List[float]] = {}
+        for x, y in zip(lam, ov):
+            by_lam.setdefault(float(x), []).append(float(y))
+        xs = sorted(by_lam)
+        ax1.plot(xs, [float(np.mean(by_lam[x])) for x in xs],
+                 color=VARIANT_COLOR[method], linewidth=2.0, alpha=0.85, zorder=2)
+    ax1.legend(loc="best", fontsize=8.5, frameon=True, facecolor=SURFACE,
+               edgecolor=GRID, labelcolor=INK_SECONDARY)
 
+    # -- right: does realized overlap predict retrieval? --------------------
+    _style(ax2, "Realized overlap (measured after training)",
+           "Retrieval accuracy (%)", "Does overlap predict retrieval?")
+    for method in methods:
+        sel = [r for r in rows if r.get("variant") == method]
+        if not sel:
+            continue
+        # Scatter, not a connected line: lambda does not order these points, so
+        # joining them would imply a trajectory that does not exist.
+        ax2.scatter([_num(r["realized_overlap"]) for r in sel],
+                    [_num(r["retrieval_accuracy"]) for r in sel],
+                    s=58, c=VARIANT_COLOR[method], alpha=0.75, linewidths=0.8,
+                    edgecolors=SURFACE, label=VARIANT_LABEL[method], zorder=3)
     for pair in pairs:
         x1, x2 = _num(pair.get("crpa_naive_overlap")), _num(pair.get("crpa_contribution_overlap"))
         y1, y2 = _num(pair.get("crpa_naive_retrieval")), _num(pair.get("crpa_contribution_retrieval"))
-        if not all(math.isfinite(v) for v in (x1, x2, y1, y2)):
-            continue
-        ax.annotate("", xy=(x2, y2), xytext=(x1, y1),
-                    arrowprops=dict(arrowstyle="-", color=INK_MUTED,
-                                    linewidth=1.1, linestyle=(0, (3, 2))), zorder=2)
-
+        if all(math.isfinite(v) for v in (x1, x2, y1, y2)):
+            ax2.annotate("", xy=(x2, y2), xytext=(x1, y1),
+                         arrowprops=dict(arrowstyle="-", color=INK_MUTED,
+                                         linewidth=1.0, linestyle=(0, (3, 2))),
+                         zorder=2)
     chance = [_num(r.get("chance_accuracy")) for r in rows if r.get("chance_accuracy")]
     if chance and math.isfinite(chance[0]):
-        ax.axhline(chance[0], color=INK_MUTED, linewidth=1.2, linestyle=(0, (5, 3)), zorder=1)
-        ax.annotate("chance ({:.0f}%)".format(chance[0]),
-                    xy=(ax.get_xlim()[0], chance[0]), xytext=(4, 4),
-                    textcoords="offset points", fontsize=7.5, color=INK_MUTED)
+        ax2.axhline(chance[0], color=INK_MUTED, linewidth=1.4,
+                    linestyle=(0, (5, 3)), zorder=1)
+        ax2.annotate("chance ({:.0f}%)".format(chance[0]),
+                     xy=(ax2.get_xlim()[0], chance[0]), xytext=(4, 4),
+                     textcoords="offset points", fontsize=8, color=INK_MUTED)
+    ax2.legend(loc="best", fontsize=8.5, frameon=True, facecolor=SURFACE,
+               edgecolor=GRID, labelcolor=INK_SECONDARY)
 
-    ax.legend(loc="best", fontsize=8.5, frameon=True, facecolor=SURFACE,
-              edgecolor=GRID, labelcolor=INK_SECONDARY)
-    fig.text(0.01, -0.045,
-             "Dashed connectors join runs whose realized overlap matches within "
-             "tolerance. Matching is on measured overlap, never on configured lambda.",
+    fig.suptitle("Matched-overlap sweep: {} runs, {} lambda values, 3 seeds".format(
+        len(rows), len({_num(r["lambda_red"]) for r in rows})),
+        fontsize=11, color=INK, x=0.02, ha="left")
+    fig.text(0.01, -0.05,
+             "Left: if lambda does not set the overlap budget, pairs matched on "
+             "realized overlap are matched on run-to-run variation, not on a "
+             "controlled budget.\nRight: dashed connectors join matched pairs. "
+             "Matching is on measured overlap, never on configured lambda.",
              fontsize=8, color=INK_MUTED)
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
 
     _save_data(out_dir / "fig2_matched_overlap_data.csv", rows)
     if pairs:
