@@ -35,12 +35,15 @@ from crpa.config import ExperimentConfig
 from crpa.data import CALIBRATION
 from crpa.evaluate import measure_overlap, retrieval_accuracy, sparsity_report
 from crpa.intervention import (
+    InterventionPlan,
     make_needle_loss_fn,
     reachable_queries,
+    sample_candidate_edges,
     sample_candidate_edges_sparse,
     score_candidates,
     split_high_overlap_groups,
 )
+from crpa.attention import relay_positions
 from crpa.kvcache import attention_edge_counts, kv_cache_table
 from crpa.metrics import spearman
 from crpa.model import GPT
@@ -95,18 +98,37 @@ def diagnose_at_length(
         # window sits at the end of the sequence, which is also where
         # reachability concentrates under a last-token loss.
         window_lo = max(0, context_length - probs_window)
-        with model.capture_probabilities(True, window=(window_lo, context_length)):
-            model(x)
-        sparse = model.sparse_attention_probabilities()
-        reach = reachable_queries(model, context_length)
+        gathered = run_cfg.model.attention_impl == "sparse_gather"
         rng = np.random.default_rng(seed + 31337)
         pool = []
-        for depth in range(len(model.blocks)):
-            pool += sample_candidate_edges_sparse(
-                sparse[depth], depth, run_cfg.model.partition_size,
-                run_cfg.model.overlap_rho, n_candidates, rng,
-                reach=reach[depth],
-            )
+
+        if gathered:
+            with model.capture_probabilities(True, window=(window_lo, context_length)):
+                model(x)
+            sparse = model.sparse_attention_probabilities()
+            reach = reachable_queries(model, context_length)
+            for depth in range(len(model.blocks)):
+                pool += sample_candidate_edges_sparse(
+                    sparse[depth], depth, run_cfg.model.partition_size,
+                    run_cfg.model.overlap_rho, n_candidates, rng,
+                    reach=reach[depth],
+                )
+        else:
+            # The dense path has no gathered capture. It is only usable at
+            # short context, which is exactly where this branch runs.
+            with model.capture_probabilities(True):
+                model(x)
+            probs = model.attention_probabilities()
+            reach = reachable_queries(model, context_length)
+            relays = relay_positions(context_length, run_cfg.model.n_relays)
+            for depth in range(len(model.blocks)):
+                if probs[depth] is None:
+                    continue
+                pool += sample_candidate_edges(
+                    probs[depth], depth, run_cfg.model.partition_size,
+                    run_cfg.model.overlap_rho, n_candidates, rng,
+                    reach=reach[depth], exclude_queries=relays,
+                )
         pool.sort(key=lambda c: -c.overlap)
         pool = pool[:n_candidates]
         scored = score_candidates(
@@ -120,6 +142,22 @@ def diagnose_at_length(
             model, [c for c in pool], make_needle_loss_fn(x2, y2),
             eps=run_cfg.contribution.eps, seed=seed, context_length=context_length,
         )
+
+    # Single-edge deltas fall below float resolution at this scale: against a
+    # loss around 10.8, float32 resolves roughly 1.3e-06, and one edge out of
+    # 552 permitted keys in one head of one layer moves it far less than that.
+    # Removing the whole candidate set at once is the constructive check: if a
+    # group intervention is resolvable where singles are not, the diagnostic
+    # survives at length in group form even though it does not edge by edge.
+    group_delta = float("nan")
+    group_removed = 0
+    if scored:
+        with model.frozen_structure():
+            plan = InterventionPlan.of([c.to_edge() for c in scored])
+            base = loss_fn(model, None)
+            after = loss_fn(model, plan)
+            group_removed = model.intervened_count()
+            group_delta = after - base
 
     deltas = [c.delta_loss for c in scored if math.isfinite(c.delta_loss)]
     by_key = {(c.layer, c.head, c.query, c.key): c.delta_loss for c in scored2}
@@ -144,13 +182,19 @@ def diagnose_at_length(
         ),
         "realized_overlap": measure_overlap(
             model, corpus, run_cfg, device, n_batches=3, bs=1, seed=seed,
-            window=probs_window
+            window=probs_window if gathered else None
         ),
         "delta_mean": float(np.mean(deltas)) if deltas else float("nan"),
         "delta_std": float(np.std(deltas)) if deltas else float("nan"),
         "delta_p50": float(np.percentile(deltas, 50)) if deltas else float("nan"),
         "delta_p90": float(np.percentile(deltas, 90)) if deltas else float("nan"),
         "delta_max": float(np.max(deltas)) if deltas else float("nan"),
+        "single_edge_deltas_all_zero": bool(deltas) and all(d == 0.0 for d in deltas),
+        "group_delta": group_delta,
+        "group_n_edges": len(scored),
+        "group_n_removed": group_removed,
+        # Float32 resolves about this much on a loss of the observed size.
+        "float32_resolution_estimate": 1.2e-07 * 11.0,
         "ranking_stability_spearman": (
             spearman([a for a, _ in paired], [b for _, b in paired])
             if len(paired) > 2 else float("nan")
@@ -236,13 +280,15 @@ def main(argv: List[str] | None = None) -> int:
                        **{k: v for k, v in record.metrics.items()
                           if isinstance(v, (int, float, bool, str))}}
                 rows.append(row)
+                m = record.metrics
                 print("  ctx={:<7} retrieval={:>5.1f}%  overlap={:.3f}  "
-                      "delta_p90={:.2e}  rank_stab={:.3f}  sparsity={:.4f}".format(
-                          length, record.metrics["retrieval_accuracy"],
-                          record.metrics["realized_overlap"],
-                          record.metrics["delta_p90"],
-                          record.metrics["ranking_stability_spearman"],
-                          record.metrics["sparsity_ratio"]))
+                      "single delta_p90={:.2e}  group delta={:+.3e}  "
+                      "sparsity={:.4f}".format(
+                          length, m["retrieval_accuracy"], m["realized_overlap"],
+                          m["delta_p90"], m["group_delta"], m["sparsity_ratio"]))
+                if m.get("single_edge_deltas_all_zero"):
+                    print("           every single-edge delta was exactly zero: "
+                          "below float resolution at this scale")
             except torch.cuda.OutOfMemoryError as exc:
                 record.status = Status.OOM
                 record.error = str(exc)[:2000]
