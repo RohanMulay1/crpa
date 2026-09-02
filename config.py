@@ -46,3 +46,26 @@ CFG = dict(
     key_range      = (100,  119),
     val_range      = (120,  139),
 )
+
+
+# ---------------------------------------------------------------------------
+#  Compatibility note
+# ---------------------------------------------------------------------------
+#
+# CFG above is the original flat configuration dict, preserved verbatim so that
+# `python main.py` and any code importing `from config import CFG` keeps working.
+#
+# New code should use the typed, immutable configuration objects in
+# crpa/config.py and the YAML profiles in configs/:
+#
+#     from crpa.config import load_profile
+#     cfg = load_profile('small_12m')      # equivalent to this dict
+#     cfg = load_profile('medium_138m')    # ~138M params, 4k-64k context
+#
+# Bridges in both directions are provided:
+#
+#     from crpa.config import from_legacy_cfg, to_legacy_cfg
+#
+# The 'sens_*' keys are named 'contribution.*' in the new objects. The variant
+# 'crpa_causal' resolves to 'crpa_contribution'; both names work everywhere and
+# existing checkpoints load unchanged.
