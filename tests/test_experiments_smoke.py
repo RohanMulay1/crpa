@@ -233,3 +233,59 @@ class TestLargeModelDiagnostic:
             assert float(probe.captured[0, 0, 31, 5]) == 0.0
             row_sum = float(probe.captured[0, 0, 31].sum())
             assert abs(row_sum - 1.0) < 1e-3
+
+
+class TestControlledComparison:
+    """At lambda_red = 0 the two gated variants must coincide exactly.
+
+    The redundancy penalty is weightless there, so the only thing that could
+    make crpa_naive and crpa_contribution diverge is the gate perturbing shared
+    state - most plausibly by drawing from an RNG stream the training loop also
+    uses. If that ever happens, every comparison between them is confounded and
+    this test is how it gets caught.
+
+    Observed on the real sweep: at lambda 0.0 seed 42, both variants gave
+    overlap 0.2403 and retrieval 4.6%.
+    """
+
+    def test_variants_coincide_when_the_penalty_is_weightless(self):
+        import torch
+
+        from crpa.config import (
+            ContributionConfig,
+            DataConfig,
+            ExperimentConfig,
+            ModelConfig,
+            TrainConfig,
+        )
+        from crpa.data import Corpus
+        from crpa.model import GPT
+        from crpa.seeding import set_seed
+        from crpa.train import train
+
+        cfg = ExperimentConfig(
+            model=ModelConfig(n_embd=32, n_head=4, n_layer=2, block_size=64,
+                              vocab_size=10000, partition_size=16, n_relays=2,
+                              cross_k=2, dropout=0.0),
+            train=TrainConfig(batch_size=2, max_iters=12, eval_iters=1,
+                              eval_interval=6, warmup_steps=2, lambda_red=0.0,
+                              checkpoint_every=0),
+            contribution=ContributionConfig(warmup_steps=2, interval=4, n_pairs=3),
+            data=DataConfig(),
+        )
+        corpus = Corpus(cfg.data, seed=42).load_synthetic(vocab_size=10000,
+                                                          n_tokens=20000)
+        finals = {}
+        for variant in ("crpa_naive", "crpa_contribution"):
+            set_seed(42)
+            model = GPT(cfg.model, variant, seed=42)
+            train(model, cfg.replace(variant=variant), corpus.reseed(42),
+                  "cpu", verbose=False)
+            finals[variant] = [p.detach().clone() for p in model.parameters()]
+
+        for a, b in zip(finals["crpa_naive"], finals["crpa_contribution"]):
+            assert torch.equal(a, b), (
+                "the gated variants diverged at lambda_red = 0, so the gate is "
+                "perturbing shared state and every comparison between them is "
+                "confounded"
+            )
