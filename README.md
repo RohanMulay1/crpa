@@ -537,6 +537,42 @@ threshold separates nothing. `eps_calibration()` now flags this, and it
 compounds with F2: no-op interventions produced delta exactly 0, which a
 threshold this large would admit regardless.
 
+### Tier 2: cost at 4k, 8k and 16k
+
+137.8M parameters, RoPE, bf16, batch 1, gather-based sparse attention, on one
+L40S. Latency is the median over 10 iterations after 5 warmups, timed with CUDA
+events. Memory is measured, not projected.
+
+| variant | 4k | 8k | 16k | peak memory at 16k |
+|---|---|---|---|---|
+| dense (SDPA) | **13.5 ms** | **30.8 ms** | **74.8 ms** | 2050 MB |
+| sliding window | 19.8 ms | 64.0 ms | 222.9 ms | 6921 MB |
+| CRPA, gather-based | 31.6 ms | 60.5 ms | 120.2 ms | 2067 MB |
+
+Two results, both negative for the efficiency framing:
+
+**Dense is faster at every length tested.** CRPA scales better with context
+(3.8x from 4k to 16k against dense's 5.5x) but starts from a constant factor
+roughly 2.3x worse and does not catch up within this range. A dense baseline
+using a fused attention kernel is a hard thing to beat by being sparse, and at
+these lengths CRPA does not.
+
+**CRPA's memory is indistinguishable from dense**, within 1% at every length.
+That follows from the same fact: a fused dense kernel is already O(T) in
+memory, so sparsity buys nothing against it. The original's comparison ran
+against a dense baseline that materialised the full score matrix, which is what
+made sparsity look like a memory win.
+
+The sliding-window baseline is slowest and heaviest because it needs an
+explicit (T, T) mask. That is an implementation property of this comparison,
+not a claim about sliding-window attention in general.
+
+This supersedes the original Table 3, which reported CRPA as sub-quadratic and
+therefore cheaper. That table timed a masked-dense implementation, so it was
+measuring mask construction rather than attention. Its own numbers show it: the
+sliding-window row was the slowest configuration there too, because its mask
+was built with a Python loop over tokens.
+
 ### What was not run
 
 Stated explicitly so nothing here is read as a result.
@@ -668,6 +704,10 @@ Only the local window and the relays are structurally evictable. That is
 reported separately as `crpa_bounded`, a variant that drops cross-partition
 routing, so the gap between what CRPA costs and what a bounded-cache variant
 would cost stays visible instead of being conflated.
+
+The measured forward-pass memory in section 10 makes the same point from the
+other direction: CRPA's peak memory is within 1% of a dense baseline using a
+fused kernel at every context length tested.
 
 ### Determinism
 
