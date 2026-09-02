@@ -332,17 +332,20 @@ while accounting for the residual stream. The filter is recorded with results.
 
 ### About the previously published numbers
 
-`results/original_published/` holds the original
-committed artifacts and are left in place as historical record. They report
-contribution-gated at 32.8% retrieval against naive at 5.3% and no-reg at 8.4%.
-Read them with three caveats:
+`results/original_published/` holds the original committed artifacts, left in
+place as historical record. They report contribution-gated at 32.8% retrieval
+against naive at 5.3% and no-reg at 8.4%. Read them with four caveats:
 
-1. They came from the F1/F2 intervention, so the "causal" gate was selecting on
-   a statistic that was substantially composed of no-ops.
-2. Chance is 5.0%. Two of the three compared variants sit at 5.3% and 8.4%, so
+1. **They do not reproduce.** Running that code at its own commit gives 7.5%
+   for the headline configuration, below its own 10.9% no-reg baseline. See
+   section 10 and `results/original_reproduction/`.
+2. They came from the F1/F2 intervention, so the gate was selecting on a
+   statistic substantially composed of no-ops, and `eps` was four orders of
+   magnitude too large to reject them even if they had been real.
+3. Chance is 5.0%. Two of the three compared variants sit at 5.3% and 8.4%, so
    the comparison is one partially-working model against two that are not
    working.
-3. Single seed.
+4. Single seed.
 
 `--intervention_mode legacy_rowpair` reproduces the original *candidate
 selection and intervention semantics* so the comparison can be made directly. It
@@ -355,7 +358,7 @@ commit.
 ## 10. What we measured
 
 Everything below was run on this branch. Commands are in section 7. Anything
-not listed here was not run, and section 11 says so explicitly.
+not listed here was not run, and the end of this section says so explicitly.
 
 Hardware: one NVIDIA L40S (46 GB), torch 2.4.1+cu124, bf16 autocast, WikiText-2
 via `Salesforce/wikitext`. Small profile: 12.4M parameters, 512 tokens, 4000
@@ -480,6 +483,26 @@ delta scale of ~1e-6, so every edge classifies as suppressible and the
 threshold separates nothing. `eps_calibration()` now flags this, and it
 compounds with F2: no-op interventions produced delta exactly 0, which a
 threshold this large would admit regardless.
+
+### What was not run
+
+Stated explicitly so nothing here is read as a result.
+
+| experiment | status | why |
+|---|---|---|
+| Tier 2 at 4k / 8k / 16k | see above | executed |
+| Tier 2 at 32k and 64k | **not run** | needs an 80GB card; the code path exists and is smoke-tested |
+| Tier 3 against a real 7B/8B model | **not run** | out of scope for the compute budget agreed for this work |
+| Tier 3 tiny-model instrumentation | smoke-tested | `hf-internal-testing/tiny-random-LlamaForCausalLM`, instrumentation verification passes |
+
+The Tier 3 tiny model has random weights, so it produces no meaningful finding
+about overlap and contribution. `fig3_large_model` therefore renders nothing
+and prints the command that would produce real data, rather than plotting
+points from a random-weight model as though they meant something.
+
+No result file anywhere in this repository carries metrics for a run whose
+status is not `completed` or `smoke`; `numeric_records()` is the only accessor
+aggregation and plotting use.
 
 ---
 
