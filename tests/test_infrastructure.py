@@ -412,3 +412,41 @@ class TestPinnedAuxiliaryTerms:
         out = pinned_at_extremum(0.9, 0.0, _math.log(4))
         assert out["pinned"] is False
         assert out["note"] == "not pinned"
+
+
+class TestDegenerateClassificationAgreement:
+    """Agreement over a one-class partition measures nothing.
+
+    With eps four orders of magnitude above the delta scale every candidate
+    falls in the same class, so two replicates label everything identically and
+    classification agreement reads a reassuring 1.0 while carrying no
+    information about the estimator. It must come back undefined instead.
+    """
+
+    def test_a_one_class_partition_reports_nan_not_one(self):
+        from experiments.estimator_stability import compare_replicates
+
+        # eps = 0.03 against deltas ~1e-6: everything is "suppressible".
+        out = compare_replicates([[1e-6, 2e-6, 3e-6], [3e-6, 1e-6, 2e-6]],
+                                 eps=0.03, top_k=2)
+        assert math.isnan(out["mean_classification_agreement"])
+        assert out["classification_is_degenerate"] is True
+        assert out["classification_degenerate_pairs"] == 1
+        assert "undefined, not perfect" in out["classification_note"]
+
+    def test_a_real_split_still_reports_a_number(self):
+        from experiments.estimator_stability import compare_replicates
+
+        out = compare_replicates([[0.1, 0.001, 0.2], [0.1, 0.001, 0.2]],
+                                 eps=0.05, top_k=2)
+        assert out["mean_classification_agreement"] == pytest.approx(1.0)
+        assert out["classification_is_degenerate"] is False
+
+    def test_the_ranking_metrics_are_unaffected(self):
+        """Spearman and top-k stay computable; only classification degenerates."""
+        from experiments.estimator_stability import compare_replicates
+
+        out = compare_replicates([[1e-6, 2e-6, 3e-6], [3e-6, 1e-6, 2e-6]],
+                                 eps=0.03, top_k=2)
+        assert math.isfinite(out["mean_spearman"])
+        assert math.isfinite(out["mean_top_k_agreement"])

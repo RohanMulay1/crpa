@@ -112,22 +112,45 @@ def compare_replicates(
                 "mean_classification_agreement": float("nan"), "n_replicates": n_rep}
 
     spearmans, topks, classes = [], [], []
+    degenerate = 0
     for a, b in itertools.combinations(range(n_rep), 2):
         da, db = replicate_deltas[a], replicate_deltas[b]
         spearmans.append(spearman(da, db))
         topks.append(top_k_agreement(ranking(da), ranking(db), top_k))
         label_a = [d <= eps for d in da]
         label_b = [d <= eps for d in db]
+        # Agreement over a one-class partition is not evidence of a stable
+        # estimator. With eps four orders of magnitude above the signal every
+        # candidate lands in the same class, both replicates label everything
+        # identically, and the metric reads 1.0 while measuring nothing. Only
+        # count a comparison where at least one replicate actually split the
+        # pool; otherwise the number is uninformative and must not be reported.
+        split_a = 0 < sum(label_a) < len(label_a)
+        split_b = 0 < sum(label_b) < len(label_b)
+        if not (split_a or split_b):
+            degenerate += 1
+            continue
         classes.append(float(np.mean([x == y for x, y in zip(label_a, label_b)])))
 
     finite = [s for s in spearmans if math.isfinite(s)]
+    n_pairs = len(spearmans)
+    all_degenerate = degenerate == n_pairs
     return {
         "mean_spearman": float(np.mean(finite)) if finite else float("nan"),
         "std_spearman": float(np.std(finite)) if len(finite) > 1 else 0.0,
         "mean_top_k_agreement": float(np.mean(topks)),
-        "mean_classification_agreement": float(np.mean(classes)),
+        # NaN, not 1.0, when every comparison was degenerate. A missing number
+        # is honest; a 1.0 that means "eps swallowed the whole pool" is not.
+        "mean_classification_agreement": (
+            float("nan") if not classes else float(np.mean(classes))),
+        "classification_degenerate_pairs": degenerate,
+        "classification_is_degenerate": bool(all_degenerate),
+        "classification_note": (
+            "eps put every candidate in one class in all {} comparisons; "
+            "agreement is undefined, not perfect".format(degenerate)
+            if all_degenerate else ""),
         "n_replicates": n_rep,
-        "n_comparisons": len(spearmans),
+        "n_comparisons": n_pairs,
     }
 
 
