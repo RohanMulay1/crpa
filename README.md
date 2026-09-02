@@ -813,6 +813,10 @@ correctable from the repository.
   the reported distribution is over reachable edges, not all edges.
 - **The two meanings of "partition"** (positional window versus router
   assignment) are inherited and not resolved.
+- **Tier 3 is validated on mechanism, not at scale.** The probe is exercised
+  against four architectures, including grouped-query attention, but the
+  largest is a few megabytes. Nothing here establishes that it survives a real
+  7B or 8B model.
 - **No decoding loop**, so no KV-cache or throughput claim about generation.
 - **Long-context overlap is measured on a window**, not the whole sequence, and
   excludes relay rows. Both are stated in the results (`probs_window`), but they
@@ -838,7 +842,75 @@ split it also calibrated against.
 
 ---
 
-## 16. Repository layout
+## 16. What is verified, and how
+
+Continuous integration runs on every push to `main` and `feat/**`, and on pull
+requests. See `.github/workflows/ci.yml`.
+
+**Every push**, on Python 3.10 and 3.11: pyflakes, `compileall`, an assertion
+that both config profiles still instantiate at their advertised parameter
+counts (12.41M and 137.79M), the non-slow test suite, `python main.py` end to
+end, figure regeneration, and a guard that fails the build if a checkpoint or a
+credential file is ever committed.
+
+**On pull requests**, additionally the two slow suites, which download small
+models and build dense references at 8192.
+
+### Tier 2: the gather path is checked where it is used
+
+Equivalence against the dense reference had only been tested at T <= 300 while
+the path ran at 16384. `tests/test_tier2_long_context.py` now checks, at 4096
+and 8192:
+
+- outputs match the dense mask, including a ragged final partition
+- chunk size is a memory knob and does not change the answer, across 4096,
+  2048, 1024 and 512
+- probabilities stay normalised
+- an edge is removed identically on both paths, including one in the seventh
+  chunk where the query offset is non-zero
+- other heads and neighbouring rows are untouched
+- the windowed capture reproduces the dense support sets, and its size is
+  identical at 4096 and 8192, which is the property that makes long-context
+  diagnostics affordable
+- relays and routed keys stay causal
+
+### Tier 3: the probe is checked across attention layouts
+
+`tests/test_tier3_instrumentation.py` runs the real probe against four tiny
+models with genuinely different internals:
+
+| model | why it is in the set |
+|---|---|
+| Llama | standard multi-head attention |
+| **Mistral** | grouped-query attention, 4 query heads over 2 KV heads, which is what Llama-3-8B uses and where per-head targeting would silently hit the wrong head |
+| GPT-NeoX | different module layout, 5 layers |
+| GPT-2 | Conv1D projections, `attn` rather than `self_attn` |
+
+Checked on each: layers are found, capture works and does not leak across
+layers, the edit reaches the logits, causality holds (positions before the
+intervened query never move), only the targeted head changes, SDPA is refused
+because it never materialises probabilities, out-of-range edges count as zero
+edits, and the patches are restored on exit.
+
+Two defects surfaced from writing these, both now fixed:
+
+1. **The final position was being sampled.** A causal language-model loss
+   compares `logits[..., :-1, :]` with `labels[..., 1:]`, so the last
+   position's logits are discarded and an intervention there cannot move the
+   loss however much attention mass it removes. That is F2 in a new place: a
+   no-op presented as a measurement. Verification and sampling now stop at
+   `T - 2`.
+2. **Correctness and resolvability were conflated.** Whether the edit reaches
+   the logits is correctness, and now raises if violated. Whether the *loss*
+   can represent that change is resolvability, and is reported rather than
+   raised: `sshleifer/tiny-gpt2` has a 2-dimensional hidden state and
+   propagates the edit correctly while the loss stays bit-identical, because
+   the shift is below one float32 ULP. Treating that as a failure would have
+   been wrong.
+
+---
+
+## 17. Repository layout
 
 ```
 crpa/                 the library
