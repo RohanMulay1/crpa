@@ -459,6 +459,59 @@ tokens. The original runtime table was dominated by mask-construction cost
 rather than by attention cost, which is why its sub-quadratic claim cannot be
 read as a statement about attention.
 
+### The matched-overlap sweep
+
+6 lambda values x 2 methods x 3 seeds = 36 runs. 15 pairs matched on realized
+overlap within a tolerance of 0.01; the matching is tight, mean absolute
+difference 0.0020.
+
+| quantity | result |
+|---|---|
+| retrieval delta, contribution minus naive | **+0.00 pp**, sd 2.05, range -2.5 to +7.1 |
+| held-out eval loss delta | +0.018, sd 0.030 |
+| pairs where either method beat chance | 6 of 15 |
+
+At matched realized overlap the two selection criteria are indistinguishable.
+
+**But the premise of this experiment does not hold.** It assumes regularization
+strength dials realized overlap, so two methods can be compared at an equal
+structural budget. It does not:
+
+| variant | spearman(lambda, overlap) | overlap span from lambda | overlap span from seed |
+|---|---|---|---|
+| `crpa_naive` | -0.135 | 0.061 | 0.092 |
+| `crpa_contribution` | -0.292 | 0.046 | 0.051 |
+
+Sweeping lambda across its full range moves overlap less than changing the seed
+does. Mean overlap by lambda for `crpa_naive`, from 0.00 to 0.20, runs 0.2434,
+0.2526, 0.2448, 0.2586, 0.2485, 0.2367: non-monotone, spanning 0.022.
+
+So the matched pairs are matched on run-to-run variation, not on a controlled
+budget. `lambda_controls_overlap()` measures this and the run prints a warning
+above the pair table. This also explains the original framing: it compared
+naive at overlap 0.251 against causal at 0.243 and read them as a similar
+budget, when overlap was never being steered and both were noise around 0.24.
+
+### Two results that look contradictory, and are not
+
+Selecting *which* edges to remove by measured contribution helps, at a matched
+removal budget, within a single trained model: 3 seeds of 3, mean damage about
+35x lower than overlap-ranked selection.
+
+Gating *training* on the same criterion does nothing: the trained models are
+indistinguishable, on retrieval and on loss, at matched overlap.
+
+These are different experiments and both are reported. The reconciliation is in
+the two sections above. During training the estimator's ranking is unstable, so
+the gate is selecting close to at random; and lambda does not steer overlap, so
+the penalty is not moving the structural budget it is supposed to move. A
+criterion can identify better edges to remove while being useless as a training
+signal, and here it is both.
+
+Note also that a *noisy* estimate of contribution still beats overlap for
+selection, because the correlation between overlap and contribution is
+approximately zero. A weak signal outperforms no signal.
+
 ### The contribution estimator does not produce a stable ranking
 
 Replicate agreement at seed 42, 24 candidates, 3 replicates per budget:
