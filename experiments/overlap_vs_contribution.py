@@ -152,14 +152,23 @@ def measure_group_effect(
 ) -> Dict[str, float]:
     """Remove a whole group at once and measure the damage.
 
-    Retrieval is measured on the evaluation split; the groups themselves were
-    formed using calibration data, so this is a genuine held-out measurement.
+    Both retrieval and language-model loss are measured on the **evaluation**
+    split; the groups were formed on calibration data, so this is genuinely
+    held out.
+
+    Measuring both matters. The groups are defined by delta quantiles, so
+    "the groups differ in delta" is true by construction and is not evidence.
+    The non-tautological question is whether removing them damages *held-out
+    behaviour* differently, and the retrieval version of that test has no power
+    when the model sits at chance. The language-model version always does.
     """
     if not group:
         return {
             "n_edges": 0,
             "retrieval_after": float("nan"),
             "retrieval_drop": float("nan"),
+            "lm_loss_after": float("nan"),
+            "lm_loss_increase": float("nan"),
             "mean_individual_delta": float("nan"),
             "mean_overlap": float("nan"),
         }
@@ -179,12 +188,25 @@ def measure_group_effect(
                 total += int(y.shape[0])
         removed = model.intervened_count()
 
+        # Held-out language-model loss, with and without the group removed.
+        base_losses, cut_losses = [], []
+        with torch.no_grad():
+            for _ in range(n_batches):
+                xb, yb = corpus.lm_batch(EVAL, block, 4, device)
+                base_losses.append(float(model(xb, yb)[1].item()))
+                cut_losses.append(float(model(xb, yb, plan=plan)[1].item()))
+
     after = 100.0 * correct / max(total, 1)
+    lm_base = float(np.mean(base_losses)) if base_losses else float("nan")
+    lm_cut = float(np.mean(cut_losses)) if cut_losses else float("nan")
     return {
         "n_edges": len(group),
         "n_score_positions_removed": removed,
         "retrieval_after": after,
         "retrieval_drop": baseline_retrieval - after,
+        "lm_loss_baseline": lm_base,
+        "lm_loss_after": lm_cut,
+        "lm_loss_increase": lm_cut - lm_base,
         "mean_individual_delta": float(np.mean([c.delta_loss for c in group])),
         "mean_overlap": float(np.mean([c.overlap for c in group])),
     }
