@@ -367,7 +367,12 @@ def fig_seed_robustness(results_root: Path, out_dir: Path) -> Path:
 
     chance = _num(rows[0].get("chance_accuracy_mean", "nan"))
     if math.isfinite(chance):
-        ax1.axhline(chance, color=INK_MUTED, linewidth=1.2, linestyle=(0, (5, 3)))
+        ax1.axhline(chance, color=INK_MUTED, linewidth=1.4, linestyle=(0, (5, 3)),
+                    zorder=5)
+        ax1.annotate("chance ({:.0f}%)".format(chance),
+                     xy=(ax1.get_xlim()[1], chance), xytext=(-4, 4),
+                     textcoords="offset points", ha="right", va="bottom",
+                     fontsize=8, color=INK_MUTED)
 
     fig.suptitle("Seed robustness: mean with bootstrap 95% interval over 3 seeds",
                  fontsize=11, color=INK, x=0.02, ha="left")

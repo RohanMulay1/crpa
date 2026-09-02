@@ -120,7 +120,11 @@ def aggregate(results_dir: Path) -> Dict[str, object]:
         by_variant.setdefault(rec.variant or "unknown", []).append(rec)
 
     fields = ["retrieval_accuracy", "realized_overlap", "eval_loss",
-              "eval_ppl", "calibration_loss", "calibration_ppl"]
+              "eval_ppl", "calibration_loss", "calibration_ppl",
+              # Carried through so figures and tables can draw the chance line.
+              # With this task at 5.0%, whether a bar clears it is the first
+              # thing a reader needs to see.
+              "chance_accuracy"]
     out: Dict[str, object] = {"experiment": EXPERIMENT, "variants": {}}
     for variant, recs in sorted(by_variant.items()):
         entry: Dict[str, object] = {
