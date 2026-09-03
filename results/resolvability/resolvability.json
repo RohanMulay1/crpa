@@ -1,0 +1,112 @@
+{
+  "experiment": "resolvability",
+  "loss": "lm",
+  "per_seed": [
+    {
+      "seed": 42,
+      "r_delta": 0.08820800780679881,
+      "r_stat": 0.11890036161168213,
+      "verdict": "unresolvable",
+      "action": "Delta is not resolvable at this budget. No decoupling may be claimed. Report the reliability failure itself as the Check 0 result, and drop the correlation claim from the abstract.",
+      "passed": false,
+      "n_candidates": 1152,
+      "rho_observed": 0.018344975538772294,
+      "rho_corrected": 0.17913132672850254,
+      "max_observable_correlation": 0.10241076127670597,
+      "delta_scale_p95": 2.86102294921875e-06,
+      "ulp_at_loss": 4.76837158203125e-07,
+      "deltas_per_ulp": 6.0,
+      "budget_curve": {
+        "2": -0.1538525972813484,
+        "4": 0.006649889044583762,
+        "8": 0.1653842312186727,
+        "16": 0.03203526692301544
+      },
+      "converges": false,
+      "note": ""
+    },
+    {
+      "seed": 1337,
+      "r_delta": -0.02634795560513869,
+      "r_stat": 0.25470263591158615,
+      "verdict": "unresolvable",
+      "action": "Delta is not resolvable at this budget. No decoupling may be claimed. Report the reliability failure itself as the Check 0 result, and drop the correlation claim from the abstract.",
+      "passed": false,
+      "n_candidates": 1152,
+      "rho_observed": -0.016529290629068584,
+      "rho_corrected": NaN,
+      "max_observable_correlation": 0.0,
+      "delta_scale_p95": 2.384185791015625e-06,
+      "ulp_at_loss": 4.76837158203125e-07,
+      "deltas_per_ulp": 5.0,
+      "budget_curve": {
+        "2": -0.26041664857725216,
+        "4": -0.03090309228881479,
+        "8": -0.11972831832684329,
+        "16": 0.04505521081021305
+      },
+      "converges": false,
+      "note": ""
+    },
+    {
+      "seed": 2024,
+      "r_delta": 0.011826235530606256,
+      "r_stat": 0.2497455838236054,
+      "verdict": "unresolvable",
+      "action": "Delta is not resolvable at this budget. No decoupling may be claimed. Report the reliability failure itself as the Check 0 result, and drop the correlation claim from the abstract.",
+      "passed": false,
+      "n_candidates": 1152,
+      "rho_observed": 0.012675212906165991,
+      "rho_corrected": 0.23322929103917406,
+      "max_observable_correlation": 0.05434657392169929,
+      "delta_scale_p95": 1.9073486328125e-06,
+      "ulp_at_loss": 4.76837158203125e-07,
+      "deltas_per_ulp": 4.0,
+      "budget_curve": {
+        "2": -0.07266021674383787,
+        "4": -0.07956640505921997,
+        "8": 0.07678190621971716,
+        "16": 0.022788447751397482
+      },
+      "converges": false,
+      "note": ""
+    }
+  ],
+  "pooled": {
+    "verdict": "unresolvable",
+    "action": "Delta is not resolvable at this budget. No decoupling may be claimed. Report the reliability failure itself as the Check 0 result, and drop the correlation claim from the abstract.",
+    "n_seeds": 3,
+    "r_delta_best": 0.08820800780679881,
+    "r_delta_per_seed": {
+      "42": 0.08820800780679881,
+      "1337": -0.02634795560513869,
+      "2024": 0.011826235530606256
+    },
+    "r_stat_per_seed": {
+      "42": 0.11890036161168213,
+      "1337": 0.25470263591158615,
+      "2024": 0.2497455838236054
+    },
+    "max_observable_correlation": 0.10241076127670597,
+    "any_seed_passed": false,
+    "claim_permitted": "overlap is a weak predictor ON THIS SAMPLE; the measurement is not reliable enough to distinguish that from attenuation"
+  },
+  "decision_rule": [
+    {
+      "min_r_delta": 0.6,
+      "verdict": "reliable",
+      "action": "Delta is reliable. Report rho and rho_corrected. A near-zero rho is a real decoupling."
+    },
+    {
+      "min_r_delta": 0.3,
+      "verdict": "attenuated",
+      "action": "Report both, lead with rho_corrected, and state the attenuation explicitly."
+    },
+    {
+      "min_r_delta": 0.0,
+      "verdict": "unresolvable",
+      "action": "Delta is not resolvable at this budget. No decoupling may be claimed. Report the reliability failure itself as the Check 0 result, and drop the correlation claim from the abstract."
+    }
+  ],
+  "provenance": "decision rule ported unchanged from xsa-controls xsac/checks.py"
+}

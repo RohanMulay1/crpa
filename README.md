@@ -425,14 +425,65 @@ the calibration split, reported on evaluation.
 | seed 2024 | -0.149 | 4.1e-07 | 1152 |
 
 Pooled, there is no detectable linear relationship. Per seed, the correlation is
-weak *and changes sign*, with two seeds significant in opposite directions. A
-single-seed study would have reported a confident positive or negative result;
-both would have been artifacts. This is the central evidence for the claim, and
-it is stronger than a consistently weak correlation would have been.
+weak *and changes sign*, with two seeds significant in opposite directions.
+
+**This was previously presented as the central evidence for the headline claim.
+It is not, and the claim has been withdrawn.** A near-zero correlation between
+a reliable statistic and an unreliable one is guaranteed by construction, so
+before the number can mean anything the contribution measurement has to be
+shown to be reliable. It is not. See the next section.
+
+### Check 0: is the contribution measurement resolvable at all?
+
+Run it yourself:
+
+```bash
+python -m experiments.resolvability --seeds 42 1337 2024 --loss lm --sweep
+```
+
+Each candidate edge's delta is measured **twice**, on two disjoint halves of the
+evaluation split, and the two estimates are correlated. The same split-half
+treatment is applied to the overlap statistic. The decision rule is ported
+unchanged from the `xsa-controls` project so both apply one pre-registered
+standard (`crpa/resolvability.py`).
+
+| seed | r_delta (reliability of the delta) | r_stat (reliability of overlap) | ceiling on any observable r | observed rho | delta size |
+|---|---|---|---|---|---|
+| 42 | +0.088 | +0.119 | 0.102 | +0.018 | 6.0 ULP |
+| 1337 | -0.026 | +0.255 | 0.000 | -0.017 | 5.0 ULP |
+| 2024 | +0.012 | +0.250 | 0.054 | +0.013 | 4.0 ULP |
+
+**Pooled verdict: UNRESOLVABLE.** Best `r_delta` across seeds is 0.088 against a
+0.3 threshold.
+
+Two things follow, and they are not the same thing:
+
+* **The ceiling.** Unreliability caps any observable correlation at
+  `sqrt(r_delta * r_stat)`, which is at most **0.102** here. Every correlation
+  we observed (|rho| <= 0.018) sits far inside that ceiling. **The data cannot
+  distinguish "overlap does not predict contribution" from "we measured our own
+  noise floor."** The disattenuated values (+0.18, undefined, +0.23) are not
+  reportable either: dividing by a near-zero reliability produces an artifact of
+  the formula, not an estimate.
+* **The cause.** A single-edge delta is 4 to 6 float32 ULPs. The measurement is
+  not noisy in the ordinary sense; it is quantised. The evaluation-budget sweep
+  confirms it: replicate agreement runs -0.154, +0.007, +0.165, +0.032 as the
+  budget grows, and never converges. More data does not help, which is the
+  signature of a quantisation floor rather than a small effect.
+
+**What the claim is now.** Not "structural overlap does not predict behavioural
+contribution." That is unsupported at this granularity, and it is separately
+scooped by a large existing literature. The defensible claim is narrower and,
+we think, more useful:
+
+> At this scale, single-edge behavioural contribution is not resolvable in
+> float32. Any criterion that thresholds it, including the one this repository
+> audits, is unfalsifiable at that granularity. Group-level candidates are a
+> requirement, not a convenience.
 
 Among edges above the same overlap threshold, both contribution tails are
-populated in every seed, so structural overlap does not identify a homogeneous
-dispensable set.
+populated in every seed. That remains true, and it remains uninterpretable as
+evidence about overlap for the same reason.
 
 ### Controls: the published headline does not reproduce from its own code
 
