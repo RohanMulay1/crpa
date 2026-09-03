@@ -78,7 +78,7 @@ quality, 8/10 completion). After = now.
 | 10 | Calibration / evaluation separation | DONE | DONE | Three-way split, disjoint RNG streams, asserted by test |
 | 11 | KV-cache accounting, measured vs projected | DONE | DONE | `results/tier2/kv_cache.csv`; routing shown to prevent bounding |
 | 12 | Six regeneratable figures | PARTIAL | PARTIAL | 6 render; `fig3_large_model` absent because Tier 3 never ran |
-| 13 | pytest suite | DONE | DONE | 186 tests, 79% -> see coverage below |
+| 13 | pytest suite | DONE | DONE | **189 tests, 83% coverage** (was 148 / 79%) |
 | 14 | Resumable experiments | DONE | DONE | Content-hash run ids; completed cells skipped |
 | 15 | Honest status handling | DONE | DONE | Status enum; `numeric_records()` sole accessor; two new guards |
 | 16 | Updated README | DONE | DONE | Rewritten; central claim withdrawn with the evidence |
@@ -106,6 +106,22 @@ quality, 8/10 completion). After = now.
 | Self-comparisons in matched pairs | External review | 3 of 15 pairs compared a model with itself |
 | Auxiliary routing entropy pinned at ln(4) | External review | A constant reported as a finding |
 | `write_csv` argument order in new code | GPU run | Check 0's per-edge CSV silently not written |
+
+---
+
+## Test and coverage changes
+
+| module | before | after | why it mattered |
+|---|---|---|---|
+| `crpa/resolvability.py` | did not exist | **95%** | New. 38 tests, including a class that re-reads the committed Check 0 artifact and fails if the README and the JSON ever disagree |
+| `crpa/figures.py` | 42% | **69%** | Figures are where a number reaches a reader. Tests pin that a missing input skips rather than drawing placeholders, that every figure writes its own source CSV, and that an OOM row never becomes a plotted point |
+| **total** | 148 tests, 79% | **189 tests, 83%** | |
+
+One test assertion was corrected during review rather than the code: a
+per-seed reliability ceiling is not a hard bound, because a negative
+reliability degenerates it to zero. The defensible statement, and the one the
+README makes, is that every observed correlation is below the best ceiling any
+seed achieved.
 
 ---
 
