@@ -148,6 +148,48 @@ def _measured_floor(records) -> Dict[str, float]:
     return {}
 
 
+def _record_iters(rec) -> object:
+    """The training budget a record was produced under, or None."""
+    cfg = rec.config or {}
+    train = cfg.get("train") if isinstance(cfg, dict) else None
+    if isinstance(train, dict):
+        return train.get("max_iters")
+    return None
+
+
+def _drop_inconsistent_budgets(records):
+    """Keep only records trained for the modal number of iterations.
+
+    Averaging a 3-iteration run with a 2000-iteration run produces a number
+    that describes neither. This has happened: nine short records once entered
+    this aggregate and moved reported retrieval from 4.31% to 2.15% and
+    perplexity from 910 to 26,485, because status was the only guard and the
+    short runs had been recorded as ``completed``.
+
+    Status is now also checked at the source (``status_for``), but a second,
+    independent guard belongs here, because this one catches any config
+    heterogeneity rather than only the short-run case that was found first.
+    The minority budget is dropped and named, never silently averaged.
+    """
+    counts: Dict[object, int] = {}
+    for rec in records:
+        counts[_record_iters(rec)] = counts.get(_record_iters(rec), 0) + 1
+    if len(counts) <= 1:
+        return list(records), []
+    modal = max(counts.items(), key=lambda kv: (kv[1], kv[0] or 0))[0]
+    keep, dropped = [], []
+    for rec in records:
+        (keep if _record_iters(rec) == modal else dropped).append(rec)
+    if dropped:
+        print(
+            "[aggregate] refusing to average across training budgets: keeping "
+            "{} record(s) at max_iters={} and dropping {} at {}. A run trained "
+            "for a different number of steps is a different experiment."
+            .format(len(keep), modal, len(dropped),
+                    sorted({str(_record_iters(r)) for r in dropped})))
+    return keep, dropped
+
+
 def aggregate(results_dir: Path) -> Dict[str, object]:
     """Mean / std / bootstrap CI per variant, across seeds.
 
@@ -155,6 +197,7 @@ def aggregate(results_dir: Path) -> Dict[str, object]:
     failed or skipped seed cannot silently enter an average.
     """
     records = numeric_records(results_dir, EXPERIMENT)
+    records, dropped = _drop_inconsistent_budgets(records)
     by_variant: Dict[str, List] = {}
     for rec in records:
         by_variant.setdefault(rec.variant or "unknown", []).append(rec)
@@ -173,6 +216,7 @@ def aggregate(results_dir: Path) -> Dict[str, object]:
     out: Dict[str, object] = {
         "experiment": EXPERIMENT,
         "measured_chance_floor": measured_floor,
+        "runs_dropped_for_budget_mismatch": len(dropped),
         "variants": {},
     }
     for variant, recs in sorted(by_variant.items()):
@@ -271,7 +315,7 @@ def main(argv: List[str] | None = None) -> int:
     # Loaded once: the language-model splits do not depend on the seed, only
     # the needle streams do, and those are cheap to rebuild.
     corpus = load_corpus(cfg, seed=seeds[0], synthetic=args.synthetic_data)
-    status = status_for(args)
+    status = status_for(args, cfg)
 
     for variant in variants:
         for seed in seeds:

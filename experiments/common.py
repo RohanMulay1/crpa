@@ -128,9 +128,38 @@ def load_corpus(cfg: ExperimentConfig, seed: int, synthetic: bool,
     return corpus
 
 
-def status_for(args: argparse.Namespace) -> Status:
-    """Smoke runs are recorded as smoke, never as completed."""
-    return Status.SMOKE if args.smoke else Status.COMPLETED
+#: A run shorter than this cannot be a reported measurement, whatever flags it
+#: was launched with. Tier 1's real configuration is 2000 iterations; anything
+#: at or below this is a debugging run.
+MIN_ITERS_FOR_COMPLETED = 100
+
+
+def status_for(args: argparse.Namespace,
+               cfg: "ExperimentConfig | None" = None) -> Status:
+    """Smoke runs are recorded as smoke, never as completed.
+
+    The ``--smoke`` flag is not the only way to produce a run that is not a
+    measurement. A run launched with ``--max_iters 3`` and no ``--smoke``
+    used to be recorded as ``completed``, and nine such records once entered
+    the Tier 1 aggregate: n_runs went from 3 to 6 with duplicated seeds,
+    retrieval fell from 4.31% to 2.15%, and evaluation perplexity rose from
+    910 to 26,485. Nothing in the pipeline objected, because the status field
+    was the only guard and the flag had not been passed.
+
+    The training budget is therefore checked as well as the flag. A record's
+    status is a claim about whether it may be reported, and that claim must
+    not depend on the operator remembering an argument.
+    """
+    if getattr(args, "smoke", False) or getattr(args, "dry_run", False):
+        return Status.SMOKE
+    iters = None
+    if cfg is not None:
+        iters = getattr(getattr(cfg, "train", None), "max_iters", None)
+    if iters is None:
+        iters = getattr(args, "max_iters", None)
+    if iters is not None and int(iters) < MIN_ITERS_FOR_COMPLETED:
+        return Status.SMOKE
+    return Status.COMPLETED
 
 
 def make_run_id(cfg: ExperimentConfig, seed: int, experiment: str, extra: str = "") -> str:

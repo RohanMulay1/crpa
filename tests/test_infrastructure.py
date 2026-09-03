@@ -450,3 +450,80 @@ class TestDegenerateClassificationAgreement:
                                  eps=0.03, top_k=2)
         assert math.isfinite(out["mean_spearman"])
         assert math.isfinite(out["mean_top_k_agreement"])
+
+
+class TestShortRunsCannotBeReported:
+    """A run's status must not depend on the operator remembering a flag.
+
+    Nine 3-iteration records once entered the Tier 1 aggregate because they
+    were launched with --max_iters 3 but without --smoke, so status_for
+    returned COMPLETED. n_runs went from 3 to 6 with duplicated seeds,
+    retrieval fell from 4.31% to 2.15%, and evaluation perplexity rose from
+    910 to 26,485. Two independent guards now stop it.
+    """
+
+    @staticmethod
+    def _args(**kw):
+        import argparse
+        base = dict(smoke=False, dry_run=False, max_iters=None)
+        base.update(kw)
+        return argparse.Namespace(**base)
+
+    def test_the_smoke_flag_still_marks_smoke(self):
+        from experiments.common import status_for
+        assert status_for(self._args(smoke=True)).value == "smoke"
+
+    def test_a_short_run_without_the_flag_is_smoke_anyway(self):
+        from experiments.common import status_for
+        assert status_for(self._args(max_iters=3)).value == "smoke"
+
+    def test_a_full_length_run_is_completed(self):
+        from experiments.common import status_for
+        assert status_for(self._args(max_iters=2000)).value == "completed"
+
+    def test_the_config_budget_is_checked_not_only_the_argument(self):
+        """--train_iters routes through the config, not through max_iters."""
+        from experiments.common import status_for
+        from crpa.config import ExperimentConfig
+        cfg = ExperimentConfig().replace(**{"train.max_iters": 3})
+        assert status_for(self._args(), cfg).value == "smoke"
+
+    def test_a_dry_run_is_never_completed(self):
+        from experiments.common import status_for
+        assert status_for(self._args(dry_run=True, max_iters=2000)).value == "smoke"
+
+
+class TestAggregateRefusesMixedTrainingBudgets:
+    """The second, independent guard. It catches any config heterogeneity,
+    not only the short-run case that was found first."""
+
+    class _Rec:
+        def __init__(self, iters, seed, variant="crpa_noreg", value=4.0):
+            self.config = {"train": {"max_iters": iters}}
+            self.seed = seed
+            self.variant = variant
+            self.metrics = {"retrieval_accuracy": value}
+
+    def test_a_minority_budget_is_dropped_and_named(self, capsys):
+        from experiments.tier1_multiseed import _drop_inconsistent_budgets
+        recs = ([self._Rec(2000, s) for s in (42, 1337, 2024)]
+                + [self._Rec(3, s) for s in (42, 1337)])
+        keep, dropped = _drop_inconsistent_budgets(recs)
+        assert len(keep) == 3 and len(dropped) == 2
+        assert all(r.config["train"]["max_iters"] == 2000 for r in keep)
+        out = capsys.readouterr().out
+        assert "refusing to average across training budgets" in out
+        assert "2000" in out and "3" in out
+
+    def test_a_homogeneous_set_is_untouched(self):
+        from experiments.tier1_multiseed import _drop_inconsistent_budgets
+        recs = [self._Rec(2000, s) for s in (42, 1337, 2024)]
+        keep, dropped = _drop_inconsistent_budgets(recs)
+        assert len(keep) == 3 and dropped == []
+
+    def test_records_without_a_budget_do_not_crash_the_guard(self):
+        from experiments.tier1_multiseed import _drop_inconsistent_budgets
+        r = self._Rec(2000, 42)
+        r.config = {}
+        keep, dropped = _drop_inconsistent_budgets([r, self._Rec(2000, 1337)])
+        assert len(keep) + len(dropped) == 2
