@@ -44,7 +44,34 @@ import torch.nn as nn
 NEG_INF = float("-inf")
 
 #: Query-block chunk size for the gather path. Bounds peak score memory.
+#:
+#: A fixed value is wrong at long context. The gather materialises
+#: ``(chunk, H, n_keys, head_dim)`` of value vectors, so peak memory is linear
+#: in the chunk and in the per-query key count. At 32k with the 138M profile
+#: (12 heads, 552 keys, head_dim 64) a 4096-query chunk asks for 6.9 GB in one
+#: allocation, which is what made 32k and 64k unreachable even on an 80GB card
+#: while 16k fitted. ``adaptive_query_chunk`` sizes it against a memory budget
+#: instead; this constant is the ceiling, not the value.
 DEFAULT_QUERY_CHUNK = 4096
+
+#: Bytes the per-chunk gather is allowed to take. One gibibyte keeps the
+#: largest single allocation well inside any card that can hold the model,
+#: and the chunk loop is sequential so a smaller chunk costs time, not memory.
+GATHER_BUDGET_BYTES = 1 << 30
+
+
+def adaptive_query_chunk(n_heads: int, n_keys: int, head_dim: int,
+                         itemsize: int = 4,
+                         budget: int = GATHER_BUDGET_BYTES,
+                         ceiling: int = DEFAULT_QUERY_CHUNK) -> int:
+    """Largest query chunk whose value gather fits inside ``budget``.
+
+    Returns at least 1, so a configuration that cannot fit even a single query
+    fails on the real allocation with a real error rather than silently
+    computing a chunk of zero.
+    """
+    per_query = max(1, n_heads * n_keys * head_dim * itemsize)
+    return max(1, min(ceiling, budget // per_query))
 
 #: Chunk size used when sampling routed keys, so the (chunk, T) scratch
 #: tensor stays bounded at long context.
@@ -540,6 +567,13 @@ def sparse_gather_attention(
 
     positions = torch.arange(T, device=device)
 
+    # Size the chunk against a memory budget rather than a constant: the
+    # gather is (chunk, H, n_keys, head_dim) and n_keys grows with the
+    # partition width, so a fixed 4096 asks for gigabytes at long context.
+    n_keys_est = p + g + kk
+    query_chunk = min(query_chunk,
+                      adaptive_query_chunk(H, n_keys_est, d,
+                                           itemsize=q.element_size()))
     # Round the chunk up to a whole number of partition blocks.
     block_chunk = max(1, query_chunk // p)
     for b_start in range(0, structure.n_blocks, block_chunk):

@@ -103,8 +103,17 @@ def diagnose_at_length(
     train_iters: Optional[int] = None,
     batch_size: int = 2,
     probs_window: int = 1024,
+    bench_only: bool = False,
 ) -> Dict[str, object]:
-    """Run the overlap/contribution diagnostic at one context length."""
+    """Run the overlap/contribution diagnostic at one context length.
+
+    ``bench_only`` skips the candidate-edge half and keeps the cost half.
+    They have very different memory profiles: a forward pass at 32k with the
+    138M profile peaks at 1.90 GB, while the candidate diagnostic exceeds an
+    80GB card at the same length. Separating them means the latency, memory
+    and sparsity numbers are obtainable at lengths where the intervention
+    analysis is not, instead of losing both to one OOM.
+    """
     run_cfg = cfg.replace(**{
         "model.block_size": context_length,
         "train.seed": seed,
@@ -120,6 +129,19 @@ def diagnose_at_length(
     loss_fn = make_needle_loss_fn(x, y)
 
     model.eval()
+    if bench_only:
+        # Cost measurements only. Everything below this point is the
+        # intervention diagnostic, which is what does not fit at 32k+.
+        return {
+            "context_length": context_length,
+            "seed": seed,
+            "bench_only": True,
+            "n_candidates": 0,
+            "note": "cost half only; the candidate-edge diagnostic was "
+                    "skipped because it exceeds available memory at this "
+                    "length. No contribution numbers are reported.",
+        }
+
     with model.frozen_structure():
         # A dense capture is 12.9 GB per layer at T=16384 with 12 heads, and
         # 180 GB across a 14-layer model, so the diagnostic retains
@@ -248,10 +270,17 @@ def main(argv: List[str] | None = None) -> int:
     add_common_args(parser)
     parser.add_argument("--context_lengths", type=int, nargs="*", default=None)
     parser.add_argument("--n_candidates", type=int, default=32)
+    parser.add_argument("--bench_only", action="store_true",
+                        help="measure cost only and skip the candidate-edge "
+                             "diagnostic, which needs far more memory")
     parser.add_argument("--train_iters", type=int, default=None,
                         help="training steps at each length; 0 diagnoses an "
                              "untrained model, which is stated in the results")
-    parser.add_argument("--bench_batch_size", type=int, default=2)
+    parser.add_argument("--bench_batch_size", type=int, default=2,
+                        help="sequences per measurement batch. Above 16k this "
+                             "is the dominant memory term, and the statistic "
+                             "is per-sequence, so 1 is the right choice there")
+
     parser.add_argument("--probs_window", type=int, default=1024,
                         help="number of trailing query rows whose attention is "
                              "retained for overlap analysis; cost is independent "
@@ -315,6 +344,7 @@ def main(argv: List[str] | None = None) -> int:
                     train_iters=args.train_iters,
                     batch_size=args.bench_batch_size,
                     probs_window=args.probs_window,
+            bench_only=args.bench_only,
                 )
                 row = {"seed": seed, "status": record.status.value,
                        **{k: v for k, v in record.metrics.items()

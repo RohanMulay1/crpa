@@ -1,40 +1,65 @@
 {
   "experiment": "long_context",
   "environment": {
-    "hostname": "72f9ce18025a",
-    "platform": "Linux-6.8.0-106-generic-x86_64-with-glibc2.35",
+    "hostname": "8c7b871b00ff",
+    "platform": "Linux-6.5.0-35-generic-x86_64-with-glibc2.35",
     "python": "3.11.10",
     "torch": "2.4.1+cu124",
     "cuda": "12.4",
     "cudnn": 90100,
     "gpu": {
       "available": true,
-      "name": "NVIDIA L40S",
+      "name": "NVIDIA A100 80GB PCIe",
       "count": 1,
-      "total_memory_gb": 47.67,
-      "capability": "8.9"
+      "total_memory_gb": 84.97,
+      "capability": "8.0"
     },
-    "cpu_count": 128
+    "cpu_count": 64
   },
   "context_lengths_requested": [
-    16384
+    65536
   ],
   "rows": [
     {
       "seed": 42,
-      "context_length": 16384,
-      "status": "oom"
+      "status": "oom",
+      "context_length": 32768
+    },
+    {
+      "seed": 42,
+      "status": "oom",
+      "context_length": 32768
+    },
+    {
+      "seed": 42,
+      "status": "oom",
+      "context_length": 32768
+    },
+    {
+      "seed": 42,
+      "status": "oom",
+      "context_length": 65536
+    },
+    {
+      "seed": 42,
+      "status": "oom",
+      "context_length": 65536
+    },
+    {
+      "seed": 42,
+      "status": "oom",
+      "context_length": 65536
     }
   ],
   "kv_cache": [
     {
       "scheme": "dense",
-      "context_length": 16384,
-      "cached_positions": 16384,
-      "bytes_total": 704643072,
+      "context_length": 65536,
+      "cached_positions": 65536,
+      "bytes_total": 2818572288,
       "bytes_per_token": 43008.0,
-      "megabytes": 704.643072,
-      "gigabytes": 0.704643072,
+      "megabytes": 2818.572288,
+      "gigabytes": 2.818572288,
       "measurement": "analytical",
       "dtype": "bfloat16",
       "batch_size": 1,
@@ -46,10 +71,10 @@
     },
     {
       "scheme": "sliding",
-      "context_length": 16384,
+      "context_length": 65536,
       "cached_positions": 512,
       "bytes_total": 22020096,
-      "bytes_per_token": 1344.0,
+      "bytes_per_token": 336.0,
       "megabytes": 22.020096,
       "gigabytes": 0.022020096,
       "measurement": "analytical",
@@ -63,12 +88,12 @@
     },
     {
       "scheme": "crpa",
-      "context_length": 16384,
-      "cached_positions": 16384,
-      "bytes_total": 704643072,
+      "context_length": 65536,
+      "cached_positions": 65536,
+      "bytes_total": 2818572288,
       "bytes_per_token": 43008.0,
-      "megabytes": 704.643072,
-      "gigabytes": 0.704643072,
+      "megabytes": 2818.572288,
+      "gigabytes": 2.818572288,
       "measurement": "analytical",
       "dtype": "bfloat16",
       "batch_size": 1,
@@ -80,10 +105,10 @@
     },
     {
       "scheme": "crpa_bounded",
-      "context_length": 16384,
+      "context_length": 65536,
       "cached_positions": 544,
       "bytes_total": 23396352,
-      "bytes_per_token": 1428.0,
+      "bytes_per_token": 357.0,
       "megabytes": 23.396352,
       "gigabytes": 0.023396352,
       "measurement": "analytical",

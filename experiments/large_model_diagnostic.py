@@ -102,7 +102,19 @@ def load_model(
             load_in_8bit=load_in_8bit, load_in_4bit=load_in_4bit
         )
     else:
-        kwargs["dtype"] = torch_dtype
+        # transformers renamed this argument: 4.x takes torch_dtype, 5.x takes
+        # dtype and warns on the old name. Pick by signature rather than by
+        # version string, so the probe works on whichever is installed.
+        import inspect
+
+        from transformers import AutoModelForCausalLM as _AMC
+
+        try:
+            params = inspect.signature(_AMC.from_pretrained).parameters
+            key = "dtype" if "dtype" in params else "torch_dtype"
+        except (TypeError, ValueError):
+            key = "torch_dtype"
+        kwargs[key] = torch_dtype
     if device_map:
         kwargs["device_map"] = device_map
 

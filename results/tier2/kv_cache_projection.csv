@@ -1,5 +1,5 @@
 scheme,context_length,cached_positions,bytes_total,bytes_per_token,megabytes,gigabytes,measurement,dtype,batch_size,n_layer,n_head,d_head,evictable,note
-dense,16384,16384,704643072,43008.0,704.643072,0.704643072,analytical,bfloat16,1,14,12,64,False,
-sliding,16384,512,22020096,1344.0,22.020096,0.022020096,analytical,bfloat16,1,14,12,64,True,
-crpa,16384,16384,704643072,43008.0,704.643072,0.704643072,analytical,bfloat16,1,14,12,64,False,"CRPA does not bound the KV cache: routed keys C_k(i) may reference any earlier position, so no entry is provably evictable. Compare with crpa_bounded, which drops routing to gain a bounded cache."
-crpa_bounded,16384,544,23396352,1428.0,23.396352,0.023396352,analytical,bfloat16,1,14,12,64,True,"Hypothetical variant without cross-partition routing. Bounded cache, but it gives up the mechanism CRPA relies on for long-range retrieval."
+dense,65536,65536,2818572288,43008.0,2818.572288,2.818572288,analytical,bfloat16,1,14,12,64,False,
+sliding,65536,512,22020096,336.0,22.020096,0.022020096,analytical,bfloat16,1,14,12,64,True,
+crpa,65536,65536,2818572288,43008.0,2818.572288,2.818572288,analytical,bfloat16,1,14,12,64,False,"CRPA does not bound the KV cache: routed keys C_k(i) may reference any earlier position, so no entry is provably evictable. Compare with crpa_bounded, which drops routing to gain a bounded cache."
+crpa_bounded,65536,544,23396352,357.0,23.396352,0.023396352,analytical,bfloat16,1,14,12,64,True,"Hypothetical variant without cross-partition routing. Bounded cache, but it gives up the mechanism CRPA relies on for long-range retrieval."

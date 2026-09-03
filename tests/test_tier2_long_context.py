@@ -232,3 +232,44 @@ class TestStructureAtLength:
         dense = T * (T + 1) // 2
         assert actual < dense * 0.25
         assert actual > T
+
+
+class TestAdaptiveChunking:
+    """The chunk is a memory knob sized against a budget, never a constant.
+
+    A fixed 4096-query chunk asks for 6.9 GB in a single allocation at 32k on
+    the 138M profile, because the gather is (chunk, H, n_keys, head_dim) and
+    n_keys grows with the partition width. That is what put 32k and 64k out of
+    reach on an 80GB card while 16k fitted comfortably.
+    """
+
+    def test_chunk_shrinks_when_the_gather_grows(self):
+        from crpa.attention import adaptive_query_chunk
+        small = adaptive_query_chunk(8, 168, 24)
+        large = adaptive_query_chunk(12, 552, 64)
+        assert large < small, "a wider gather must get a smaller chunk"
+
+    def test_chunk_respects_the_ceiling(self):
+        from crpa.attention import DEFAULT_QUERY_CHUNK, adaptive_query_chunk
+        assert adaptive_query_chunk(1, 1, 1) == DEFAULT_QUERY_CHUNK
+
+    def test_chunk_is_never_zero(self):
+        """A zero chunk would silently compute nothing."""
+        from crpa.attention import adaptive_query_chunk
+        assert adaptive_query_chunk(64, 100_000, 128) >= 1
+
+    def test_the_budget_is_actually_respected(self):
+        from crpa.attention import GATHER_BUDGET_BYTES, adaptive_query_chunk
+        h, keys, d = 12, 552, 64
+        chunk = adaptive_query_chunk(h, keys, d)
+        assert chunk * h * keys * d * 4 <= GATHER_BUDGET_BYTES
+
+    def test_adaptive_chunking_does_not_change_the_output(self):
+        """The whole point: it is a memory knob, not a semantic one."""
+        T, p = 4096, 512
+        structure = _structure(T, p)
+        q, k, v = _qkv(T)
+        reference, _, _ = sparse_gather_attention(q, k, v, structure,
+                                                  query_chunk=4096)
+        adaptive, _, _ = sparse_gather_attention(q, k, v, structure)
+        assert torch.allclose(reference, adaptive, atol=1e-6)

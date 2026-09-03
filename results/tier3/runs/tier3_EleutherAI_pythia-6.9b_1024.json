@@ -1,0 +1,149 @@
+{
+  "run_id": "tier3_EleutherAI_pythia-6.9b_1024",
+  "experiment": "large_model_diagnostic",
+  "status": "completed",
+  "config": {
+    "model_id": "EleutherAI/pythia-6.9b",
+    "dtype": "bfloat16",
+    "context_length": 1024,
+    "layers": [
+      0,
+      16,
+      31
+    ],
+    "n_candidates": 64,
+    "partition_size": 64,
+    "rho": 0.6
+  },
+  "metrics": {
+    "model_id": "EleutherAI/pythia-6.9b",
+    "n_model_layers": 32,
+    "layers_instrumented": [
+      0,
+      16,
+      31
+    ],
+    "context_length": 1024,
+    "n_edges": 192,
+    "correlation": {
+      "n": 192,
+      "pearson_r": NaN,
+      "pearson_p": NaN,
+      "spearman_r": NaN,
+      "spearman_p": NaN,
+      "pearson_ci_low": NaN,
+      "pearson_ci_high": NaN
+    },
+    "instrumentation_verification": {
+      "layer_0": {
+        "verified": true,
+        "probe_layer": 0,
+        "probe_query": 1022,
+        "edge_prob_before": 0.02734375,
+        "edge_prob_after": 0.0,
+        "row_sum_after": 1.0,
+        "baseline_loss": 12.5,
+        "intervened_loss": 12.5,
+        "loss_delta": 0.0,
+        "max_logit_shift": 2.578125,
+        "loss_resolves_intervention": false,
+        "n_edits_applied": 1,
+        "attention_shape": [
+          1,
+          32,
+          1024,
+          1024
+        ]
+      },
+      "layer_16": {
+        "verified": true,
+        "probe_layer": 16,
+        "probe_query": 1022,
+        "edge_prob_before": 0.88671875,
+        "edge_prob_after": 0.0,
+        "row_sum_after": 1.0,
+        "baseline_loss": 12.5,
+        "intervened_loss": 12.5,
+        "loss_delta": 0.0,
+        "max_logit_shift": 3.046875,
+        "loss_resolves_intervention": false,
+        "n_edits_applied": 1,
+        "attention_shape": [
+          1,
+          32,
+          1024,
+          1024
+        ]
+      },
+      "layer_31": {
+        "verified": true,
+        "probe_layer": 31,
+        "probe_query": 1022,
+        "edge_prob_before": 0.99609375,
+        "edge_prob_after": 0.0,
+        "row_sum_after": 1.0,
+        "baseline_loss": 12.5,
+        "intervened_loss": 12.5,
+        "loss_delta": 0.0,
+        "max_logit_shift": 0.126953125,
+        "loss_resolves_intervention": false,
+        "n_edits_applied": 1,
+        "attention_shape": [
+          1,
+          32,
+          1024,
+          1024
+        ]
+      }
+    },
+    "group_thresholds": {
+      "overlap": 1.0,
+      "low_contribution": 0.0,
+      "high_contribution": 0.0
+    },
+    "high_overlap_low_contribution": {
+      "n": 128,
+      "mean_delta": 0.0,
+      "mean_overlap": 1.0
+    },
+    "high_overlap_high_contribution": {
+      "n": 128,
+      "mean_delta": 0.0,
+      "mean_overlap": 1.0
+    },
+    "matched_budget_comparison": {
+      "budget": 8,
+      "naive_total_delta": 0.0,
+      "contribution_total_delta": 0.0,
+      "note": "per-layer effects summed; an additive approximation, since only one layer is probed at a time"
+    },
+    "interpretation_note": "A weak correlation shows overlap predicts contribution poorly on this sample. It is not evidence of independence."
+  },
+  "seed": 42,
+  "context_length": 1024,
+  "dtype": "bfloat16",
+  "variant": null,
+  "splits": {},
+  "notes": "",
+  "error": null,
+  "duration_s": null,
+  "timestamp": "2026-09-03T10:31:20+0000",
+  "git_sha": "unknown",
+  "git_dirty": false,
+  "env": {
+    "hostname": "8c7b871b00ff",
+    "platform": "Linux-6.5.0-35-generic-x86_64-with-glibc2.35",
+    "python": "3.11.10",
+    "torch": "2.4.1+cu124",
+    "cuda": "12.4",
+    "cudnn": 90100,
+    "gpu": {
+      "available": true,
+      "name": "NVIDIA A100 80GB PCIe",
+      "count": 1,
+      "total_memory_gb": 84.97,
+      "capability": "8.0"
+    },
+    "cpu_count": 64
+  }
+}

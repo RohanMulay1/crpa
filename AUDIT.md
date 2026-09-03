@@ -69,15 +69,15 @@ quality, 8/10 completion). After = now.
 | 1 | Framing: causal importance -> behavioural contribution | DONE | DONE | Terminology section in README; `crpa_contribution` canonical |
 | 2 | Rename `crpa_causal` -> `crpa_contribution`, keep aliases | DONE | DONE | Alias resolves; checkpoints load; `figures.VARIANT_COLOR` carries both |
 | 3 | Tier 1: 12.4M/512, seeds 42/1337/2024 | DONE | DONE | `results/tier1/aggregate.json`, 3 seeds x 5 variants |
-| 4 | Tier 2: ~138M at 4k-64k | PARTIAL | PARTIAL | 4k/8k/16k measured; 32k/64k recorded `oom`, never as numbers |
-| 5 | Tier 3: frozen 7B/8B diagnostic | PARTIAL | PARTIAL | Instrumentation verified on 4 architectures; no 7B run. See BLOCKED below |
+| 4 | Tier 2: ~138M at 4k-64k | PARTIAL | **PARTIAL (constraint now proven)** | 4k/8k/16k measured. 32k/64k retried on an A100 80GB with batch 1 and adaptive chunking and still exceed memory; see the constraint note below. Recorded `oom`, never as numbers |
+| 5 | Tier 3: frozen 7B/8B diagnostic | PARTIAL | **DONE** | **Pythia-6.9B on an A100 80GB, bf16, 192 edges across layers 0/16/31.** Edits propagate (logit shift 2.58, 3.05, 0.127) while every delta loss is exactly 0.000e+00 |
 | 6 | Matched-overlap sweep on **realised** overlap | DONE | DONE | 36 runs, 12 pairs, mean abs diff 0.0025; self-comparisons excluded |
 | 7 | Overlap vs intervention-delta dataset | DONE | DONE (reinterpreted) | 3,310 edges. Still produced; **no longer load-bearing**, see Check 0 |
 | 8 | High-overlap group analyses | DONE | DONE (reinterpreted) | Both tails populated; uninterpretable for the same reason |
 | 9 | Estimator ranking-stability | DONE | DONE | Spearman -0.087..+0.121 across budgets 2-32; never converges |
 | 10 | Calibration / evaluation separation | DONE | DONE | Three-way split, disjoint RNG streams, asserted by test |
 | 11 | KV-cache accounting, measured vs projected | DONE | DONE | `results/tier2/kv_cache.csv`; routing shown to prevent bounding |
-| 12 | Six regeneratable figures | PARTIAL | PARTIAL | 6 render; `fig3_large_model` absent because Tier 3 never ran |
+| 12 | Six regeneratable figures | PARTIAL | **DONE** | **All 7 render, 0 skipped**, including `fig3_large_model` now that Tier 3 has real data |
 | 13 | pytest suite | DONE | DONE | **189 tests, 83% coverage** (was 148 / 79%) |
 | 14 | Resumable experiments | DONE | DONE | Content-hash run ids; completed cells skipped |
 | 15 | Honest status handling | DONE | DONE | Status enum; `numeric_records()` sole accessor; two new guards |
@@ -89,9 +89,14 @@ quality, 8/10 completion). After = now.
 
 | Item | Why |
 |---|---|
-| Tier 2 at 32,768 and 65,536 | Exceeded 48GB at the configured width. Recorded `oom`. A larger card would resolve it; the code path is implemented and exercised at three lengths |
-| Tier 3 at 7B/8B | Deferred by explicit instruction, then not reinstated. Instrumentation is verified across Llama, GPT-2, GPT-NeoX and Mistral architectures, so the blocker is compute time, not correctness |
-| `fig3_large_model` | Requires Tier 3 data. The figure raises `FigureSkipped` rather than drawing a placeholder, which is the intended behaviour |
+| Tier 2 at 32,768 and 65,536 | **Proven, not assumed.** Retried on an A100 80GB at the correct 138M profile with `--bench_batch_size 1`, on an otherwise idle card, and again after making the gather chunk adaptive. All attempts exceed memory. What the attempts did establish: a **forward pass at 32k costs only 1.90 GB peak**, so the model scales fine and the cost is in the diagnostic and in training at full context, not in inference. The adaptive-chunk fix (`adaptive_query_chunk`) is a real reduction in peak allocation and is retained, tested, and verified not to change results |
+
+### Closed since the previous audit
+
+| Item | Was | Now |
+|---|---|---|
+| Tier 3 at 7B | no run | **Pythia-6.9B measured.** 192 edges, every delta exactly 0.000e+00 while logits shift by whole units |
+| `fig3_large_model` | absent | **renders**; all 7 figures, 0 skipped |
 
 ---
 
@@ -122,6 +127,20 @@ per-seed reliability ceiling is not a hard bound, because a negative
 reliability degenerates it to zero. The defensible statement, and the one the
 README makes, is that every observed correlation is below the best ceiling any
 seed achieved.
+
+---
+
+## The measurability floor now spans three orders of magnitude
+
+| scale | precision | single-edge delta |
+|---|---|---|
+| 12.4M (Tier 1) | float32 | 4 to 6 ULP, split-half reliability 0.088 |
+| 138M (Tier 2) | float32 | exactly one ULP, 9.5367e-07 |
+| **6.9B (Tier 3)** | **bfloat16** | **exactly 0.000e+00 across 192 edges** |
+
+At 6.9B the edit demonstrably reaches the output, with logit shifts of 2.58,
+3.05 and 0.127 at layers 0, 16 and 31, and the loss does not move at all. The
+claim this branch now makes is not a small-model artifact.
 
 ---
 

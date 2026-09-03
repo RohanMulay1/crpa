@@ -433,6 +433,34 @@ a reliable statistic and an unreliable one is guaranteed by construction, so
 before the number can mean anything the contribution measurement has to be
 shown to be reliable. It is not. See the next section.
 
+### Tier 3: the same floor at 6.9B, in bf16
+
+Run on an A100 80GB:
+
+```bash
+python -m experiments.large_model_diagnostic   --model_id EleutherAI/pythia-6.9b --device cuda --dtype bfloat16   --context_length 1024 --n_candidates 64
+```
+
+192 single-edge interventions across layers 0, 16 and 31 of a 6.9B model:
+
+| layer | logit shift from the edit | delta loss |
+|---|---|---|
+| 0 | 2.58e+00 | **0.000e+00** |
+| 16 | 3.05e+00 | **0.000e+00** |
+| 31 | 1.27e-01 | **0.000e+00** |
+
+**The edit propagates and the loss does not move.** Logits shift by whole
+units, so the intervention is unambiguously reaching the output; the resulting
+loss is bit-identical to baseline for all 192 edges, giving mean = max =
+`0.000e+00` and an undefined correlation.
+
+This is the same measurability floor found at 12.4M, now at 6.9B and in
+bfloat16 rather than float32. It is also why the probe separates two things
+that are easy to conflate: it raises only when the **logit** shift is zero,
+which would mean the instrumentation is broken, and reports resolvability
+separately. A checker that asserted "the loss changed" would have failed here
+on a correct implementation.
+
 ### Check 0: is the contribution measurement resolvable at all?
 
 Run it yourself:
