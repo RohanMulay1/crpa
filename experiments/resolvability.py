@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
@@ -31,7 +30,7 @@ import numpy as np
 import torch
 
 from crpa.config import ExperimentConfig
-from crpa.data import CALIBRATION, EVAL
+from crpa.data import EVAL
 from crpa.intervention import (
     Candidate,
     InterventionError,
@@ -41,7 +40,7 @@ from crpa.intervention import (
 )
 from crpa.model import GPT
 from crpa.resolvability import ResolvabilityResult, assess, pooled_verdict, spearman
-from crpa.runmeta import numeric_records, write_csv
+from crpa.runmeta import write_csv
 from crpa.seeding import set_seed
 from crpa.train import train
 from experiments.common import (

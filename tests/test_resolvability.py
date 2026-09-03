@@ -21,7 +21,6 @@ from crpa.resolvability import (
     disattenuate,
     max_observable_correlation,
     pooled_verdict,
-    spearman,
     ulp,
     verdict_for,
 )
