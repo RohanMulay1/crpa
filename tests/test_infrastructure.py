@@ -533,3 +533,11 @@ class TestLongContextMemoryBound:
         source = (Path(__file__).parents[1] / "experiments" /
                   "long_context.py").read_text(encoding="utf-8")
         assert "with torch.no_grad(), model.frozen_structure():" in source
+
+    def test_completed_record_is_saved_before_status_output(self):
+        source = (Path(__file__).parents[1] / "experiments" /
+                  "long_context.py").read_text(encoding="utf-8")
+        start = source.index("record.metrics = diagnose_at_length")
+        persisted = source.index("save_record(results_dir, record)", start)
+        displayed = source.index('print("  ctx={:<7}', start)
+        assert persisted < displayed

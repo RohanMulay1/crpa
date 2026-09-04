@@ -422,6 +422,10 @@ def main(argv: List[str] | None = None) -> int:
                        **{k: v for k, v in record.metrics.items()
                           if isinstance(v, (int, float, bool, str))}}
                 rows.append(row)
+                # Persist before user-facing output. A detached SSH channel
+                # can raise BrokenPipeError on print after hours of compute;
+                # that transport failure must not discard a completed run.
+                save_record(results_dir, record)
                 m = record.metrics
                 print("  ctx={:<7} retrieval={:>5.1f}%  overlap={:.3f}  "
                       "single delta_p90={:.2e}  group delta={:+.3e}  "
