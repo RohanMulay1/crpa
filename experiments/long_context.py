@@ -25,6 +25,8 @@ becomes a data point.
 from __future__ import annotations
 
 import argparse
+import heapq
+import json
 import math
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -41,7 +43,7 @@ from crpa.intervention import (
     reachable_queries,
     sample_candidate_edges,
     sample_candidate_edges_sparse,
-    score_candidates,
+    score_candidates_chunked,
     split_high_overlap_groups,
 )
 from crpa.attention import relay_positions
@@ -104,6 +106,7 @@ def diagnose_at_length(
     batch_size: int = 2,
     probs_window: int = 1024,
     bench_only: bool = False,
+    score_chunk_size: int = 8,
 ) -> Dict[str, object]:
     """Run the overlap/contribution diagnostic at one context length.
 
@@ -129,6 +132,17 @@ def diagnose_at_length(
     loss_fn = make_needle_loss_fn(x, y)
 
     model.eval()
+    phase_peaks: Dict[str, float] = {}
+
+    def begin_phase() -> None:
+        if device.startswith("cuda"):
+            torch.cuda.synchronize()
+            torch.cuda.reset_peak_memory_stats()
+
+    def end_phase(name: str) -> None:
+        if device.startswith("cuda"):
+            torch.cuda.synchronize()
+            phase_peaks[name] = int(torch.cuda.max_memory_allocated())
     if bench_only:
         # Cost measurements only. Everything below this point is the
         # intervention diagnostic, which is what does not fit at 32k+.
@@ -151,48 +165,74 @@ def diagnose_at_length(
         window_lo = max(0, context_length - probs_window)
         gathered = run_cfg.model.attention_impl == "sparse_gather"
         rng = np.random.default_rng(seed + 31337)
-        pool = []
+        # Keep only the global top n while layers are captured one at a time.
+        # The tie counter prevents heapq from comparing Candidate instances.
+        candidate_heap = []
+        tie = 0
+
+        def retain(candidates) -> None:
+            nonlocal tie
+            for cand in candidates:
+                item = (float(cand.overlap), tie, cand)
+                tie += 1
+                if len(candidate_heap) < n_candidates:
+                    heapq.heappush(candidate_heap, item)
+                elif item[0] > candidate_heap[0][0]:
+                    heapq.heapreplace(candidate_heap, item)
 
         if gathered:
-            with model.capture_probabilities(True, window=(window_lo, context_length)):
-                model(x)
-            sparse = model.sparse_attention_probabilities()
-            reach = reachable_queries(model, context_length)
+            begin_phase()
             for depth in range(len(model.blocks)):
-                pool += sample_candidate_edges_sparse(
-                    sparse[depth], depth, run_cfg.model.partition_size,
+                with torch.no_grad(), model.capture_probabilities(
+                        True, window=(window_lo, context_length),
+                        layers=[depth]):
+                    model(x, last_only=True)
+                sparse = model.sparse_attention_probabilities()[depth]
+                reach = reachable_queries(model, context_length)[depth]
+                retain(sample_candidate_edges_sparse(
+                    sparse, depth, run_cfg.model.partition_size,
                     run_cfg.model.overlap_rho, n_candidates, rng,
-                    reach=reach[depth],
-                )
+                    reach=reach,
+                ))
+                # Captures are GPU tensors. Drop the sole live reference before
+                # advancing to the next layer so memory is O(one layer).
+                model.blocks[depth].attn._sparse_probs = None
+                del sparse, reach
+            end_phase("candidate_capture")
         else:
             # The dense path has no gathered capture. It is only usable at
             # short context, which is exactly where this branch runs.
-            with model.capture_probabilities(True):
-                model(x)
+            begin_phase()
+            with torch.no_grad(), model.capture_probabilities(True):
+                model(x, last_only=True)
             probs = model.attention_probabilities()
             reach = reachable_queries(model, context_length)
             relays = relay_positions(context_length, run_cfg.model.n_relays)
             for depth in range(len(model.blocks)):
                 if probs[depth] is None:
                     continue
-                pool += sample_candidate_edges(
+                retain(sample_candidate_edges(
                     probs[depth], depth, run_cfg.model.partition_size,
                     run_cfg.model.overlap_rho, n_candidates, rng,
                     reach=reach[depth], exclude_queries=relays,
-                )
-        pool.sort(key=lambda c: -c.overlap)
-        pool = pool[:n_candidates]
-        scored = score_candidates(
+                ))
+            end_phase("candidate_capture")
+        pool = [item[2] for item in sorted(candidate_heap, reverse=True)]
+        begin_phase()
+        scored = score_candidates_chunked(
             model, pool, loss_fn, eps=run_cfg.contribution.eps,
             seed=seed, context_length=context_length,
+            chunk_size=score_chunk_size,
         )
         # A second independent estimate, so ranking stability is measurable
         # here rather than assumed from the Tier 1 result.
         x2, y2 = corpus.needle_batch(CALIBRATION, context_length, batch_size, device=device)
-        scored2 = score_candidates(
+        scored2 = score_candidates_chunked(
             model, [c for c in pool], make_needle_loss_fn(x2, y2),
-            eps=run_cfg.contribution.eps, seed=seed, context_length=context_length,
+            eps=run_cfg.contribution.eps, seed=seed,
+            context_length=context_length, chunk_size=score_chunk_size,
         )
+        end_phase("candidate_scoring")
 
     # Single-edge deltas fall below float resolution at this scale: against a
     # loss around 10.8, float32 resolves roughly 1.3e-06, and one edge out of
@@ -200,6 +240,7 @@ def diagnose_at_length(
     # Removing the whole candidate set at once is the constructive check: if a
     # group intervention is resolvable where singles are not, the diagnostic
     # survives at length in group form even though it does not edge by edge.
+    begin_phase()
     group_delta = float("nan")
     group_removed = 0
     if scored:
@@ -255,9 +296,16 @@ def diagnose_at_length(
         "frac_high_overlap_high_contribution":
             len(groups["high_overlap_high_contribution"]) / n_scored,
         "group_thresholds": groups["thresholds"],
+        "score_chunk_size": score_chunk_size,
     }
     metrics.update(sparsity_report(model, context_length))
     metrics.update(attention_edge_counts(run_cfg.model, context_length))
+    end_phase("group_and_summary")
+    metrics["peak_measurement"] = (
+        "measured" if device.startswith("cuda") else "not_applicable_cpu")
+    metrics["diagnostic_peak_memory_bytes"] = (
+        max(phase_peaks.values()) if phase_peaks else None)
+    metrics["diagnostic_phase_peak_memory_bytes"] = dict(phase_peaks)
     del model
     if device.startswith("cuda"):
         torch.cuda.empty_cache()
@@ -273,6 +321,9 @@ def main(argv: List[str] | None = None) -> int:
     parser.add_argument("--bench_only", action="store_true",
                         help="measure cost only and skip the candidate-edge "
                              "diagnostic, which needs far more memory")
+    parser.add_argument("--rebuild_only", action="store_true",
+                        help="rebuild aggregate CSV/JSON rows from existing "
+                             "run records without launching a model")
     parser.add_argument("--train_iters", type=int, default=None,
                         help="training steps at each length; 0 diagnoses an "
                              "untrained model, which is stated in the results")
@@ -285,6 +336,9 @@ def main(argv: List[str] | None = None) -> int:
                         help="number of trailing query rows whose attention is "
                              "retained for overlap analysis; cost is independent "
                              "of context length")
+    parser.add_argument("--score_chunk_size", type=int, default=8,
+                        help="bounded number of candidate scalar records "
+                             "consumed per scoring chunk")
     parser.add_argument("--variant", default="crpa_contribution")
     args = parser.parse_args(argv)
 
@@ -309,6 +363,23 @@ def main(argv: List[str] | None = None) -> int:
 
     if args.dry_run:
         print("\nWould diagnose {} length(s) x {} seed(s)".format(len(lengths), len(seeds)))
+        return 0
+
+    if args.rebuild_only:
+        rows = collect_rows(results_dir)
+        if not rows:
+            raise SystemExit("no long-context run records in {}".format(
+                results_dir))
+        write_csv(results_dir / "long_context.csv", rows)
+        json_path = results_dir / "long_context.json"
+        payload = (json.loads(json_path.read_text(encoding="utf-8"))
+                   if json_path.exists() else {"experiment": EXPERIMENT})
+        payload["rows"] = rows
+        payload["note"] = (
+            "Rows with status 'oom' carry no metrics. Context lengths absent "
+            "from this file were not attempted and must be reported as not run.")
+        write_json(json_path, payload)
+        print("rebuilt {} rows from run records".format(len(rows)))
         return 0
 
     # Loaded once; only the needle streams depend on the seed.
@@ -344,7 +415,8 @@ def main(argv: List[str] | None = None) -> int:
                     train_iters=args.train_iters,
                     batch_size=args.bench_batch_size,
                     probs_window=args.probs_window,
-            bench_only=args.bench_only,
+                    bench_only=args.bench_only,
+                    score_chunk_size=args.score_chunk_size,
                 )
                 row = {"seed": seed, "status": record.status.value,
                        **{k: v for k, v in record.metrics.items()

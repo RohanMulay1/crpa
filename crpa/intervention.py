@@ -37,7 +37,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
@@ -496,6 +496,41 @@ def score_candidates(
         if was_training:
             model.train()
     return scored
+
+
+def score_candidates_chunked(
+    model: torch.nn.Module,
+    candidates: Iterable[Candidate],
+    loss_fn: Callable[[torch.nn.Module, Optional[InterventionPlan]], float],
+    eps: float,
+    chunk_size: int = 8,
+    seed: Optional[int] = None,
+    context_length: Optional[int] = None,
+    skip_no_ops: bool = True,
+) -> List[Candidate]:
+    """Score an iterable without retaining an unbounded candidate pool.
+
+    Each chunk is reduced to scalar ``Candidate`` records before the next is
+    consumed.  The model forward remains one intervention at a time, which is
+    required for an attributable single-edge delta; chunking bounds only the
+    host-side input and makes the ownership/release point explicit.
+    """
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be positive")
+    out: List[Candidate] = []
+    chunk: List[Candidate] = []
+    for candidate in candidates:
+        chunk.append(candidate)
+        if len(chunk) == chunk_size:
+            out.extend(score_candidates(
+                model, chunk, loss_fn, eps, seed=seed,
+                context_length=context_length, skip_no_ops=skip_no_ops))
+            chunk.clear()
+    if chunk:
+        out.extend(score_candidates(
+            model, chunk, loss_fn, eps, seed=seed,
+            context_length=context_length, skip_no_ops=skip_no_ops))
+    return out
 
 
 def make_needle_loss_fn(

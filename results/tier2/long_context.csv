@@ -1,7 +1,10 @@
-seed,status,context_length
-42,oom,32768
-42,oom,32768
-42,oom,32768
-42,oom,65536
-42,oom,65536
-42,oom,65536
+seed,status,context_length,n_candidates_scored,probs_window,retrieval_accuracy,realized_overlap,delta_mean,delta_std,delta_p50,delta_p90,delta_max,single_edge_deltas_all_zero,group_delta,group_n_edges,group_n_removed,float32_resolution_estimate,ranking_stability_spearman,frac_high_overlap_low_contribution,frac_high_overlap_high_contribution,theoretical_causal_edges,actual_edges,sparsity_ratio,edge_count_is_upper_bound,dense_causal_edges,crpa_edges_upper_bound,sparsity_ratio_upper_bound,edges_per_query
+42,completed,4096,24,1024,0.0,0.23232803898175394,-3.9736429850260414e-08,1.9056922289978343e-07,0.0,0.0,0.0,False,9.5367431640625e-07,24,24,1.3199999999999999e-06,1.0,0.25,0.25,8390656,1189699.857142857,0.14178865837699187,False,8390656.0,2392064,0.28508664876739076,552
+42,completed,8192,24,1024,0.0,0.23553591633107004,0.0,0.0,0.0,0.0,0.0,True,9.5367431640625e-07,24,24,1.3199999999999999e-06,nan,0.25,0.25,33558528,2402865.714285714,0.07160223816389426,False,33558528.0,4784128,0.1425607225680459,552
+42,oom,16384,,,,,,,,,,,,,,,,,,,,,,,,,
+42,oom,32768,,,,,,,,,,,,,,,,,,,,,,,,,
+42,oom,32768,,,,,,,,,,,,,,,,,,,,,,,,,
+42,oom,32768,,,,,,,,,,,,,,,,,,,,,,,,,
+42,oom,65536,,,,,,,,,,,,,,,,,,,,,,,,,
+42,oom,65536,,,,,,,,,,,,,,,,,,,,,,,,,
+42,oom,65536,,,,,,,,,,,,,,,,,,,,,,,,,

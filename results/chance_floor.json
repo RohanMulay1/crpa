@@ -1,0 +1,58 @@
+{
+  "experiment": "chance_floor",
+  "status": "completed",
+  "method": "simulate each trivial strategy on generated evaluation examples",
+  "block_size": 512,
+  "n_per_seed": 25000,
+  "seeds": [
+    42,
+    1337,
+    2024,
+    7,
+    99
+  ],
+  "rows": [
+    {
+      "seed": 42,
+      "uniform": 4.844,
+      "context_value": 52.416,
+      "last_value": 52.888,
+      "strongest": 52.888,
+      "n_simulated": 25000.0
+    },
+    {
+      "seed": 1337,
+      "uniform": 4.84,
+      "context_value": 52.564,
+      "last_value": 52.728,
+      "strongest": 52.728,
+      "n_simulated": 25000.0
+    },
+    {
+      "seed": 2024,
+      "uniform": 4.98,
+      "context_value": 52.348,
+      "last_value": 52.824,
+      "strongest": 52.824,
+      "n_simulated": 25000.0
+    },
+    {
+      "seed": 7,
+      "uniform": 4.824,
+      "context_value": 52.68,
+      "last_value": 52.756,
+      "strongest": 52.756,
+      "n_simulated": 25000.0
+    },
+    {
+      "seed": 99,
+      "uniform": 5.484,
+      "context_value": 52.68,
+      "last_value": 52.124,
+      "strongest": 52.68,
+      "n_simulated": 25000.0
+    }
+  ],
+  "strongest_mean_percent": 52.7752,
+  "strongest_sd_percent": 0.08179975550085601
+}

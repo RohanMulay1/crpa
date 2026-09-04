@@ -61,7 +61,7 @@ jobs:
             --synthetic_data --results_dir results/ci
 
       - name: Figures regenerate from result files
-        run: python -m experiments.plot_all --results_dir results/ci || true
+        run: python -m experiments.plot_all --results_dir results --strict
 
       - name: No checkpoints or credentials staged
         run: |

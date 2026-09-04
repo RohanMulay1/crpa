@@ -1,5 +1,6 @@
 {
   "experiment": "resolvability",
+  "status": "unresolvable",
   "loss": "lm",
   "per_seed": [
     {

@@ -282,6 +282,7 @@ def main(argv: List[str] | None = None) -> int:
     pooled = pooled_verdict(results)
     payload = {
         "experiment": EXPERIMENT,
+        "status": pooled["verdict"],
         "loss": args.loss,
         "per_seed": [r.to_dict() for r in results],
         "pooled": pooled,

@@ -405,7 +405,8 @@ class GPT(nn.Module):
 
     @contextlib.contextmanager
     def capture_probabilities(
-        self, enabled: bool = True, window: Optional[Tuple[int, int]] = None
+        self, enabled: bool = True, window: Optional[Tuple[int, int]] = None,
+        layers: Optional[Sequence[int]] = None,
     ) -> Iterator[None]:
         """Toggle retention of attention probabilities.
 
@@ -417,11 +418,18 @@ class GPT(nn.Module):
                 for long-context diagnostics. With it the cost is independent
                 of context length.
         """
+        selected = (set(range(len(self.blocks))) if layers is None
+                    else {int(i) for i in layers})
+        unknown = selected - set(range(len(self.blocks)))
+        if unknown:
+            raise ValueError("capture layer(s) out of range: {}".format(
+                sorted(unknown)))
         previous = [(blk.attn._capture_probs, blk.attn._probs_window)
                     for blk in self.blocks]
-        for blk in self.blocks:
-            blk.attn._capture_probs = enabled
-            blk.attn._probs_window = window if enabled else None
+        for depth, blk in enumerate(self.blocks):
+            active = enabled and depth in selected
+            blk.attn._capture_probs = active
+            blk.attn._probs_window = window if active else None
         try:
             yield
         finally:

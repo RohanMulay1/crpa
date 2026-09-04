@@ -24,6 +24,7 @@ from crpa.intervention import (
     measure_delta,
     reachable_queries,
     score_candidates,
+    score_candidates_chunked,
     sample_candidate_edges,
     select_contribution_gated,
     select_naive,
@@ -136,6 +137,46 @@ class TestNoOpRefusal:
         scored = score_candidates(tiny_model, bogus, make_needle_loss_fn(x, y),
                                   eps=0.03, skip_no_ops=True)
         assert scored == [], "a no-op intervention was recorded as an observation"
+
+    def test_chunked_scoring_matches_materialized_scoring(self, tiny_model,
+                                                           needle_batch):
+        x, y = needle_batch
+        candidates = [
+            Candidate(layer=0, head=0, query=x.shape[1] - 1, key=k,
+                      overlap=1.0 - k / 100.0)
+            for k in (0, 1, 2)
+        ]
+        loss_fn = make_needle_loss_fn(x, y)
+        direct = score_candidates(tiny_model, candidates, loss_fn, eps=0.03)
+        fresh = [Candidate(layer=c.layer, head=c.head, query=c.query,
+                           key=c.key, overlap=c.overlap) for c in candidates]
+        chunked = score_candidates_chunked(
+            tiny_model, iter(fresh), loss_fn, eps=0.03, chunk_size=1)
+        assert [c.to_row() for c in chunked] == [c.to_row() for c in direct]
+
+    def test_chunk_size_must_be_positive(self, tiny_model, needle_batch):
+        x, y = needle_batch
+        with pytest.raises(ValueError, match="positive"):
+            score_candidates_chunked(
+                tiny_model, [], make_needle_loss_fn(x, y), eps=0.03,
+                chunk_size=0)
+
+
+class TestScopedProbabilityCapture:
+    def test_only_requested_layer_retains_probabilities(self, tiny_model,
+                                                        needle_batch):
+        x, _ = needle_batch
+        with torch.no_grad(), tiny_model.capture_probabilities(
+                True, window=(0, x.shape[1]), layers=[0]):
+            tiny_model(x, last_only=True)
+        captured = tiny_model.attention_probabilities()
+        assert captured[0] is not None
+        assert all(value is None for value in captured[1:])
+
+    def test_unknown_layer_is_rejected(self, tiny_model):
+        with pytest.raises(ValueError, match="out of range"):
+            with tiny_model.capture_probabilities(True, layers=[999]):
+                pass
 
 
 class TestReachability:
