@@ -527,3 +527,9 @@ class TestAggregateRefusesMixedTrainingBudgets:
         r.config = {}
         keep, dropped = _drop_inconsistent_budgets([r, self._Rec(2000, 1337)])
         assert len(keep) + len(dropped) == 2
+
+class TestLongContextMemoryBound:
+    def test_group_intervention_disables_autograd(self):
+        source = (Path(__file__).parents[1] / "experiments" /
+                  "long_context.py").read_text(encoding="utf-8")
+        assert "with torch.no_grad(), model.frozen_structure():" in source

@@ -244,7 +244,7 @@ def diagnose_at_length(
     group_delta = float("nan")
     group_removed = 0
     if scored:
-        with model.frozen_structure():
+        with torch.no_grad(), model.frozen_structure():
             plan = InterventionPlan.of([c.to_edge() for c in scored])
             base = loss_fn(model, None)
             after = loss_fn(model, plan)
