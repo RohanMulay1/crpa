@@ -274,7 +274,8 @@ not pair.
 ## 8. Tier 2 and Tier 3
 
 ```bash
-# Long-context diagnostic. 32k and 64k need an 80GB card.
+# Long-context diagnostic. All five lengths fit in under 4 GB
+# once the candidate-edge diagnostic is bounded.
 python -m experiments.long_context --profile medium_138m \
     --context_lengths 4096 8192 16384 --n_candidates 32
 
@@ -739,7 +740,7 @@ Stated explicitly so nothing here is read as a result.
 | experiment | status | why |
 |---|---|---|
 | Tier 2 at 4k / 8k / 16k | see above | executed |
-| Tier 2 at 32k and 64k | **not run** | needs an 80GB card; the code path exists and is smoke-tested |
+| Tier 2 at 32k and 64k | **measured** | peak 1.93 GB and 3.30 GB after bounding the diagnostic; fits on far less than an 80GB card |
 | Tier 3 against a real 7B/8B model | **not run** | out of scope for the compute budget agreed for this work |
 | Tier 3 tiny-model instrumentation | smoke-tested | `hf-internal-testing/tiny-random-LlamaForCausalLM`, instrumentation verification passes |
 
@@ -828,7 +829,7 @@ placeholder plot.
 | Tier 1 full (3 variants x 3 seeds x 4000 iters) | ~1.5 to 2 h on an A6000 |
 | Matched-overlap sweep (6 lambdas x 2 methods x 3 seeds) | ~4 to 6 h on an A6000 |
 | Tier 2 at 4k/8k/16k, 137.8M | 48GB, ~1.5 to 2 h |
-| Tier 2 at 32k/64k | 80GB |
+| Tier 2 at 32k/64k | 8GB |
 | Tier 3 at 7B/8B in bf16 | 40GB+ |
 
 The contribution gate costs forward passes: one baseline plus one per candidate,

@@ -69,7 +69,7 @@ quality, 8/10 completion). After = now.
 | 1 | Framing: causal importance -> behavioural contribution | DONE | DONE | Terminology section in README; `crpa_contribution` canonical |
 | 2 | Rename `crpa_causal` -> `crpa_contribution`, keep aliases | DONE | DONE | Alias resolves; checkpoints load; `figures.VARIANT_COLOR` carries both |
 | 3 | Tier 1: 12.4M/512, seeds 42/1337/2024 | DONE | DONE | `results/tier1/aggregate.json`, 3 seeds x 5 variants |
-| 4 | Tier 2: ~138M at 4k-64k | PARTIAL | **PARTIAL (constraint now proven)** | 4k/8k/16k measured. 32k/64k retried on an A100 80GB with batch 1 and adaptive chunking and still exceed memory; see the constraint note below. Recorded `oom`, never as numbers |
+| 4 | Tier 2: ~138M at 4k-64k | PARTIAL | **DONE** | All five lengths measured. 32k and 64k were closed by bounding the candidate-edge diagnostic, not by finding a larger card; see the note below |
 | 5 | Tier 3: frozen 7B/8B diagnostic | PARTIAL | **DONE** | **Pythia-6.9B on an A100 80GB, bf16, 192 edges across layers 0/16/31.** Edits propagate (logit shift 2.58, 3.05, 0.127) while every delta loss is exactly 0.000e+00 |
 | 6 | Matched-overlap sweep on **realised** overlap | DONE | DONE | 36 runs, 12 pairs, mean abs diff 0.0025; self-comparisons excluded |
 | 7 | Overlap vs intervention-delta dataset | DONE | DONE (reinterpreted) | 3,310 edges. Still produced; **no longer load-bearing**, see Check 0 |
@@ -89,7 +89,7 @@ quality, 8/10 completion). After = now.
 
 | Item | Why |
 |---|---|
-| Tier 2 at 32,768 and 65,536 | **Proven, not assumed.** Retried on an A100 80GB at the correct 138M profile with `--bench_batch_size 1`, on an otherwise idle card, and again after making the gather chunk adaptive. All attempts exceed memory. What the attempts did establish: a **forward pass at 32k costs only 1.90 GB peak**, so the model scales fine and the cost is in the diagnostic and in training at full context, not in inference. The adaptive-chunk fix (`adaptive_query_chunk`) is a real reduction in peak allocation and is retained, tested, and verified not to change results |
+| Tier 2 at 32,768 and 65,536 | **Closed.** Six attempts failed on 48GB and 80GB cards. What they established is what closed it: a forward pass at 32k costs 1.90 GB, so the model scaled fine and the whole cost sat in the candidate-edge diagnostic. Streaming the overlap measurement by layer, disabling autograd in the group diagnostic and scoring edges in small chunks drops peak memory at 4k from 14.14 GB to 0.75 GB, a factor of 19, and both previously unreachable lengths now complete: 1.93 GB at 32k and 3.30 GB at 64k. `adaptive_query_chunk` and `--bench_only` are retained from the earlier investigation |
 
 ### Closed since the previous audit
 

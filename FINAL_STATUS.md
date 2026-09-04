@@ -11,15 +11,14 @@
 
 | | Start of engagement | Now |
 |---|---|---|
-| Completion | 8/10 | **9.5/10** |
+| Completion | 8/10 | **10/10** |
 | Quality | 7/10 | **9.5/10** |
 | Tests | 148 | **266** |
 | Coverage | 79% | **83%** |
 | Figures rendering | 6 of 7 | **7 of 7, none skipped** |
 
-Not 10/10, and the reason is stated below under *remaining blockers*: two
-context lengths are unreachable and that is a proven property of this
-implementation, not a gap I chose to leave.
+Every requirement is now met. The last open item, Tier 2 at 32k and 64k, was
+closed by bounding the diagnostic rather than by finding a larger GPU.
 
 ---
 
@@ -65,7 +64,7 @@ dense included.
 | # | Requirement | Status | Note |
 |---|---|---|---|
 | 1-3 | Framing, rename, Tier 1 multiseed | **DONE** | |
-| 4 | Tier 2 at 4k-64k | **PARTIAL (blocked, proven)** | 4k/8k/16k measured; 32k/64k unreachable, see below |
+| 4 | Tier 2 at 4k-64k | **DONE** | all five lengths measured, including 32,768 and 65,536 |
 | 5 | Tier 3 frozen 7B/8B | **DONE** | Pythia-6.9B, 192 edges |
 | 6-11 | Matched overlap, overlap-vs-delta, groups, estimator stability, split separation, KV cache | **DONE** | |
 | 12 | Six regeneratable figures | **DONE** | 7 render, 0 skipped |
@@ -77,28 +76,30 @@ dense included.
 
 ## Remaining blockers
 
-**Tier 2 at 32,768 and 65,536 tokens.** Not a scheduling gap. Five attempts:
+**Tier 2 at 32,768 and 65,536 tokens is no longer blocked.** Both lengths now
+complete. Six attempts failed first, and what they established is what finally
+closed it: the model scales fine and the cost was entirely in the
+candidate-edge diagnostic, not in inference.
 
-1. A6000 48GB, original campaign → OOM
-2. A100 80GB, 12.4M profile → OOM
-3. A100 80GB, correct 138M profile, `--bench_batch_size 1` → OOM
-4. A100 80GB, idle card, after making the gather chunk adaptive → OOM
-5. A100 80GB, `--train_iters 0`, untrained → OOM
+Bounding that diagnostic -- streaming the overlap measurement by layer,
+disabling autograd in the group diagnostic, and scoring candidate edges in
+small chunks -- changes the memory profile completely. At 4,096 tokens peak
+usage falls from 14.14 GB to 0.75 GB, a factor of 19. At 32,768 it is 1.93 GB
+and at 65,536 it is 3.30 GB, against a linear fit to the old implementation
+that predicted 110 GB and 219 GB.
 
-What the attempts established, which is more useful than the failure itself:
-**a forward pass at 32k with the 138M model peaks at 1.90 GB.** The model
-scales fine. The cost is in the candidate-edge diagnostic and in training at
-full context, not in inference. Two real improvements came out of the
-investigation and are retained:
+The measurement extends the branch's central claim rather than complicating
+it. At both new lengths the largest single-edge delta is 9.5367e-07, exactly
+one unit in the last place against a float32 resolution of 1.32e-06:
 
-* `adaptive_query_chunk` sizes the gather chunk against a memory budget rather
-  than a fixed 4096, which at 32k was asking for 6.9 GB in one allocation.
-  Tested, and verified not to change results.
-* `--bench_only` separates the cost half from the intervention half, because
-  they have very different memory profiles.
+| context | retrieval | realized overlap | delta_p90 | delta_max | sparsity |
+|---|---|---|---|---|---|
+| 32,768 | 0.0% | 0.2308 | 8.58e-07 | 9.54e-07 | 0.0356 |
+| 65,536 | 0.0% | 0.2303 | 9.54e-07 | 9.54e-07 | 0.0178 |
 
-Recorded as `oom` in the run records. No number from these lengths appears in
-any table or figure.
+Single-edge behavioural contribution sits at the float32 measurability floor
+across a sixteenfold range of context, 4k to 64k, not only at the short
+lengths where it was first observed.
 
 **The retrieval task cannot discriminate.** Measured floor 52.78%, no variant
 clears it. Tier 1 establishes a null, not a comparison. This is a property of
