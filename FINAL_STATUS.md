@@ -13,7 +13,7 @@
 |---|---|---|
 | Completion | 8/10 | **10/10** |
 | Quality | 7/10 | **9.5/10** |
-| Tests | 148 | **266** |
+| Tests | 148 | **273** |
 | Coverage | 79% | **83%** |
 | Figures rendering | 6 of 7 | **7 of 7, none skipped** |
 
@@ -68,7 +68,7 @@ dense included.
 | 5 | Tier 3 frozen 7B/8B | **DONE** | Pythia-6.9B, 192 edges |
 | 6-11 | Matched overlap, overlap-vs-delta, groups, estimator stability, split separation, KV cache | **DONE** | |
 | 12 | Six regeneratable figures | **DONE** | 7 render, 0 skipped |
-| 13 | pytest suite | **DONE** | 266 tests, 83% |
+| 13 | pytest suite | **DONE** | 273 tests, 83% |
 | 14-17 | Resumability, honest status, README, backwards compatibility | **DONE** | |
 | 18 | Check 0 on this repo's own claim | **DONE** | Added this engagement; caused the withdrawal |
 
@@ -140,7 +140,7 @@ python -m experiments.long_context --profile medium_138m \
   --context_lengths 4096 8192 16384 --train_iters 0
 python -m experiments.plot_all           # 7 figures, 0 skipped
 
-pytest                                    # 266 tests
+pytest                                    # 273 tests
 python main.py --max_iters 50 --block_size 64    # legacy entry point
 ```
 
@@ -162,7 +162,7 @@ python main.py --max_iters 50 --block_size 64    # legacy entry point
 ## Verification
 
 * **Working tree:** clean
-* **Tests:** 266 passing, 83% coverage
+* **Tests:** 273 passing, 83% coverage
 * **Lint:** pyflakes clean, enforced in CI
 * **CI:** green
 * **Compute:** the RunPod pod used for this work has been **terminated**. No
