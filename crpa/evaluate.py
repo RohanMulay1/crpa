@@ -108,11 +108,11 @@ def measure_overlap(
     T = cfg.model.block_size
     capture_window = (max(0, T - window), T) if window else None
     try:
-        with model.capture_probabilities(True, window=capture_window):
-            for _ in range(n_batches):
-                x, _ = corpus.lm_batch(role, T, bs, device)
-                model(x)
-                if capture_window is None:
+        for _ in range(n_batches):
+            x, _ = corpus.lm_batch(role, T, bs, device)
+            if capture_window is None:
+                with model.capture_probabilities(True):
+                    model(x, last_only=True)
                     for probs in model.attention_probabilities():
                         if probs is None:
                             continue
@@ -121,14 +121,22 @@ def measure_overlap(
                             cfg.model.overlap_rho, cfg.model.partition_size,
                             n_samples=8, rng=rng,
                         ))
-                else:
-                    for sparse in model.sparse_attention_probabilities():
-                        if sparse is None:
-                            continue
+            else:
+                # Reduce each captured layer to a scalar before capturing the
+                # next. Retaining every layer's gathered window simultaneously
+                # is the diagnostic allocation that exhausted 80 GiB.
+                for depth in range(len(model.blocks)):
+                    with model.capture_probabilities(
+                            True, window=capture_window, layers=[depth]):
+                        model(x, last_only=True)
+                    sparse = model.sparse_attention_probabilities()[depth]
+                    if sparse is not None:
                         values.append(mean_pairwise_overlap_sparse(
                             sparse, cfg.model.overlap_rho,
                             cfg.model.partition_size, n_samples=8, rng=rng,
                         ))
+                    model.blocks[depth].attn._sparse_probs = None
+                    del sparse
     finally:
         if was_training:
             model.train()
