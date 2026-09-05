@@ -4,11 +4,29 @@ Attention overlap is a **structural** statistic. It says how similar two queries
 attention supports look. Redundancy is a **behavioral** property. It says whether
 removing an interaction actually changes what the model does.
 
-This repository exists to test whether the first predicts the second.
+This repository exists to test whether the first predicts the second. The
+short answer, established below, is that **the measurement cannot tell**.
 
-> **Core claim.** High structural overlap does not imply dispensability.
-> Behavioral contribution, estimated by intervention, is a better criterion for
-> deciding which overlapping interactions may be suppressed.
+> ### The original core claim is WITHDRAWN.
+>
+> This repository was built to argue that high structural overlap does not
+> imply dispensability, and that behavioural contribution estimated by
+> intervention is a better criterion for deciding which overlapping
+> interactions may be suppressed.
+>
+> **That claim is withdrawn.** Applying a split-half resolvability check to
+> this repository's own measurement returns UNRESOLVABLE: the best split-half
+> reliability of the single-edge effect is `r_delta = 0.088` against a 0.3
+> threshold, which caps any observable correlation at **0.102**. Every
+> correlation the argument rested on is inside that cap, so a real decoupling
+> and measurement noise are indistinguishable here.
+>
+> **What the evidence does support** is a measurability claim: single-edge
+> behavioural contribution is not resolvable in float32. The largest
+> single-edge delta is one unit in the last place across a sixteenfold range
+> of context (4k to 64k), and at Pythia-6.9B in bfloat16 it is exactly
+> `0.000e+00` across 192 edges while the same edit shifts logits by whole
+> units. See `FINAL_STATUS.md` and `AUDIT.md`.
 
 We are **not** claiming CRPA is a fast long-context transformer. The evidence
 here does not support that, and the KV-cache analysis below shows why it is not

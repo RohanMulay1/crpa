@@ -78,7 +78,7 @@ quality, 8/10 completion). After = now.
 | 10 | Calibration / evaluation separation | DONE | DONE | Three-way split, disjoint RNG streams, asserted by test |
 | 11 | KV-cache accounting, measured vs projected | DONE | DONE | `results/tier2/kv_cache.csv`; routing shown to prevent bounding |
 | 12 | Six regeneratable figures | PARTIAL | **DONE** | **All 7 render, 0 skipped**, including `fig3_large_model` now that Tier 3 has real data |
-| 13 | pytest suite | DONE | DONE | **266 tests, 83% coverage** (was 148 / 79%) |
+| 13 | pytest suite | DONE | DONE | **273 tests, 83% coverage** (was 148 / 79%) |
 | 14 | Resumable experiments | DONE | DONE | Content-hash run ids; completed cells skipped |
 | 15 | Honest status handling | DONE | DONE | Status enum; `numeric_records()` sole accessor; two new guards |
 | 16 | Updated README | DONE | DONE | Rewritten; central claim withdrawn with the evidence |
@@ -120,7 +120,7 @@ quality, 8/10 completion). After = now.
 |---|---|---|---|
 | `crpa/resolvability.py` | did not exist | **95%** | New. 38 tests, including a class that re-reads the committed Check 0 artifact and fails if the README and the JSON ever disagree |
 | `crpa/figures.py` | 42% | **69%** | Figures are where a number reaches a reader. Tests pin that a missing input skips rather than drawing placeholders, that every figure writes its own source CSV, and that an OOM row never becomes a plotted point |
-| **total** | 148 tests, 79% | **266 tests, 83%** | |
+| **total** | 148 tests, 79% | **273 tests, 83%** | |
 
 One test assertion was corrected during review rather than the code: a
 per-seed reliability ceiling is not a hard bound, because a negative
@@ -160,7 +160,7 @@ python -m experiments.estimator_stability --seeds 42
 python -m experiments.long_context --context_lengths 4096 8192 16384
 python -m experiments.plot_all
 
-pytest                        # 266 tests
+pytest                        # 273 tests
 python main.py --max_iters 50 --block_size 64   # legacy entry point
 ```
 
